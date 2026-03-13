@@ -1,0 +1,12 @@
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.GeneratedMSBuildEditorConfig.editorconfig
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.AssemblyInfoInputs.cache
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.AssemblyInfo.cs
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.csproj.CoreCompileInputs.cache
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.sourcelink.json
+C:\garbage\claude\simple-log\src\OpenMeasure\bin\Debug\net10.0\OpenMeasure.deps.json
+C:\garbage\claude\simple-log\src\OpenMeasure\bin\Debug\net10.0\OpenMeasure.dll
+C:\garbage\claude\simple-log\src\OpenMeasure\bin\Debug\net10.0\OpenMeasure.pdb
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.dll
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\refint\OpenMeasure.dll
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\OpenMeasure.pdb
+C:\garbage\claude\simple-log\src\OpenMeasure\obj\Debug\net10.0\ref\OpenMeasure.dll

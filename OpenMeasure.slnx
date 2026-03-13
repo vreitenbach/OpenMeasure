@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/QuickStart/QuickStart.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/OpenMeasure/OpenMeasure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpenMeasure.Tests/OpenMeasure.Tests.csproj" />
+  </Folder>
+</Solution>
