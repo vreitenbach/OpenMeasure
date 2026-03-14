@@ -1,4 +1,4 @@
-# OpenMeasure (.omx) — Offene Messdaten-Bibliothek
+﻿# MeasFlow (.meas) — Offene Messdaten-Bibliothek
 
 ## Konzept für eine hochperformante Messdaten-Bibliothek in C# / .NET 10
 
@@ -43,15 +43,15 @@ Offenheit           ████████████████████
 ## 3. Datenmodell
 
 ```
-OmxFile
- ├── Properties: Dictionary<string, OmxValue>
+MeasFile
+ ├── Properties: Dictionary<string, MeasValue>
  ├── Groups[]
  │    ├── Name: string
- │    ├── Properties: Dictionary<string, OmxValue>
+ │    ├── Properties: Dictionary<string, MeasValue>
  │    └── Channels[]
  │         ├── Name: string
- │         ├── DataType: OmxDataType
- │         ├── Properties: Dictionary<string, OmxValue>
+ │         ├── DataType: MeasDataType
+ │         ├── Properties: Dictionary<string, MeasValue>
  │         └── Data: T[]  (typisiert)
  └── Metadata (automatisch)
       ├── CreatedAt: DateTime
@@ -62,7 +62,7 @@ OmxFile
 ### Unterstützte Datentypen
 
 ```csharp
-public enum OmxDataType : byte
+public enum MeasDataType : byte
 {
     // Ganzzahlen
     Int8    = 0x01,  Int16  = 0x02,  Int32  = 0x03,  Int64  = 0x04,
@@ -88,7 +88,7 @@ public enum OmxDataType : byte
 
 ---
 
-## 4. Binäres Dateiformat (.omx)
+## 4. Binäres Dateiformat (.meas)
 
 ### 4.1 Dateistruktur — Segment-basiert
 
@@ -126,7 +126,7 @@ public enum OmxDataType : byte
 ```
 Offset  Größe  Beschreibung
 ------  -----  --------------------------------
-0x00    4      Magic Number: "OMX\0" (0x4F4D5800)
+0x00    4      Magic Number: "MEAS\0" (0x4D454153)
 0x04    2      Format-Version: Major.Minor (uint16)
 0x06    2      Flags (Kompression, Endianness, Index vorhanden)
 0x08    8      Offset zum ersten Segment (int64)
@@ -175,19 +175,19 @@ Delta:     [1000,    1,    1,    1,    2,    1]  → komprimiert deutlich besser
 
 ```csharp
 // Einfachster Fall: Datei schreiben
-using var writer = OmxFile.CreateWriter("messung.omx");
+using var writer = MeasFile.CreateWriter("messung.meas");
 
 var group = writer.AddGroup("Motor");
 group.Properties["Prüfstand"] = "P42";
 
 var rpm = group.AddChannel<float>("RPM");
 var temp = group.AddChannel<double>("Temperatur");
-var time = group.AddChannel<OmxTimestamp>("Zeit");
+var time = group.AddChannel<MeasTimestamp>("Zeit");
 
 // Daten schreiben — einzeln oder als Block
 rpm.Write(1500.0f);
 temp.Write(85.3);
-time.Write(OmxTimestamp.Now);
+time.Write(MeasTimestamp.Now);
 
 // Block-Schreiben für Performance
 float[] rpmBlock = acquisitionSystem.ReadBuffer();
@@ -202,7 +202,7 @@ writer.Flush();
 ### 5.2 Schreiben — Bulk / High-Performance
 
 ```csharp
-using var writer = OmxFile.CreateWriter("messung.omx", new OmxWriterOptions
+using var writer = MeasFile.CreateWriter("messung.meas", new MeasWriterOptions
 {
     Compression = OmxCompression.DeltaLz4,
     SegmentSize = 64 * 1024 * 1024,  // 64 MB Segmente
@@ -225,7 +225,7 @@ await accel.WriteAsync(hugeDataBlock, cancellationToken);
 
 ```csharp
 // Datei öffnen (Memory-Mapped, kein vollständiges Laden)
-using var file = OmxFile.OpenRead("messung.omx");
+using var file = MeasFile.OpenRead("messung.meas");
 
 // Struktur erkunden
 foreach (var group in file.Groups)
@@ -263,8 +263,8 @@ Console.WriteLine($"Min: {stats.Min}, Max: {stats.Max}, Mean: {stats.Mean}");
 
 // Zeitbasierter Zugriff (wenn Zeitkanal vorhanden)
 var timeRange = file["Motor"].TimeSlice(
-    from: OmxTimestamp.Parse("2026-03-13T10:00:00"),
-    to:   OmxTimestamp.Parse("2026-03-13T10:05:00")
+    from: MeasTimestamp.Parse("2026-03-13T10:00:00"),
+    to:   MeasTimestamp.Parse("2026-03-13T10:05:00")
 );
 
 float[] rpmInRange = timeRange["RPM"].AsFloat32().ReadAll().ToArray();
@@ -281,7 +281,7 @@ await OmxConvert.ToArrowAsync(file["Motor"], "export.arrow");
 
 // TDMS-Import
 using var tdmsFile = TdmsImporter.Open("legacy.tdms");
-using var writer = OmxFile.CreateWriter("converted.omx");
+using var writer = MeasFile.CreateWriter("converted.meas");
 await OmxConvert.FromTdms(tdmsFile, writer);
 ```
 
@@ -384,14 +384,14 @@ public partial record SensorReading(float X, float Y, float Z, long Timestamp);
 ## 7. Paket-Struktur (NuGet)
 
 ```
-OpenMeasure/
+MeasFlow/
 ├── src/
-│   ├── OpenMeasure/                     # Kern-Bibliothek
-│   │   ├── OmxFile.cs                   # Haupt-Einstiegspunkt
-│   │   ├── OmxWriter.cs                 # Streaming Writer
-│   │   ├── OmxReader.cs                 # Memory-Mapped Reader
-│   │   ├── OmxChannel.cs                # Kanal-Abstraktion
-│   │   ├── OmxGroup.cs                  # Gruppen-Abstraktion
+│   ├── MeasFlow/                     # Kern-Bibliothek
+│   │   ├── MeasFile.cs                   # Haupt-Einstiegspunkt
+│   │   ├── MeasWriter.cs                 # Streaming Writer
+│   │   ├── MeasReader.cs                 # Memory-Mapped Reader
+│   │   ├── MeasChannel.cs                # Kanal-Abstraktion
+│   │   ├── MeasGroup.cs                  # Gruppen-Abstraktion
 │   │   ├── Format/
 │   │   │   ├── FileHeader.cs
 │   │   │   ├── SegmentHeader.cs
@@ -409,17 +409,17 @@ OpenMeasure/
 │   │   └── Statistics/
 │   │       └── ChannelStatistics.cs
 │   │
-│   ├── OpenMeasure.Generators/          # Source Generators
+│   ├── MeasFlow.Generators/          # Source Generators
 │   │   └── OmxSerializableGenerator.cs
 │   │
-│   └── OpenMeasure.Converters/          # Import/Export
+│   └── MeasFlow.Converters/          # Import/Export
 │       ├── CsvConverter.cs
 │       ├── ArrowConverter.cs
 │       └── TdmsImporter.cs
 │
 ├── tests/
-│   ├── OpenMeasure.Tests/
-│   └── OpenMeasure.Benchmarks/          # BenchmarkDotNet
+│   ├── MeasFlow.Tests/
+│   └── MeasFlow.Benchmarks/          # BenchmarkDotNet
 │
 ├── samples/
 │   ├── QuickStart/
@@ -437,11 +437,11 @@ OpenMeasure/
 
 | Paket | Inhalt | Abhängigkeiten |
 |-------|--------|----------------|
-| `OpenMeasure` | Kern-Bibliothek | keine (!) |
-| `OpenMeasure.Generators` | Source-Gen für struct-Serialisierung | Roslyn |
-| `OpenMeasure.Compression.Lz4` | LZ4-Kompression | K4os.Compression.LZ4 |
-| `OpenMeasure.Compression.Zstd` | Zstd-Kompression | ZstdSharp |
-| `OpenMeasure.Converters` | CSV, Arrow, TDMS-Import | Apache.Arrow |
+| `MeasFlow` | Kern-Bibliothek | keine (!) |
+| `MeasFlow.Generators` | Source-Gen für struct-Serialisierung | Roslyn |
+| `MeasFlow.Compression.Lz4` | LZ4-Kompression | K4os.Compression.LZ4 |
+| `MeasFlow.Compression.Zstd` | Zstd-Kompression | ZstdSharp |
+| `MeasFlow.Converters` | CSV, Arrow, TDMS-Import | Apache.Arrow |
 
 **Kern-Bibliothek hat null externe Abhängigkeiten.**
 
@@ -450,7 +450,7 @@ OpenMeasure/
 ## 8. Vergleich mit bestehenden Formaten
 
 ```
-                    TDMS    HDF5    MDF4    OMX (dieses Konzept)
+                    TDMS    HDF5    MDF4    MEAS (dieses Konzept)
                     ────    ────    ────    ────────────────────
 Lizenz              Propr.  BSD*    Propr.  MIT
 .NET nativ          ✗       ✗       ✗       ✓
@@ -499,7 +499,7 @@ channel.Write(new GpsCoordinate(48.1351, 11.5820, 519.0));
 ### 9.3 Events / Marker
 ```csharp
 // Zeitbasierte Marker innerhalb einer Gruppe
-group.AddMarker("Motorstart", OmxTimestamp.Now, new {
+group.AddMarker("Motorstart", MeasTimestamp.Now, new {
     RPM = 800.0f,
     Status = "OK"
 });
@@ -535,6 +535,6 @@ group.AddMarker("Motorstart", OmxTimestamp.Now, new {
 
 ### Phase 4: Ökosystem
 - [ ] Python-Reader (via Format-Spezifikation)
-- [ ] CLI-Tool (`omx inspect`, `omx convert`)
+- [ ] CLI-Tool (`MEAS inspect`, `MEAS convert`)
 - [ ] VS2026-Visualizer
 - [ ] Format-Spezifikation als eigenständiges Dokument

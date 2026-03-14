@@ -1,8 +1,8 @@
-# OpenMeasure (.omx) Binary Format Specification
+﻿# MeasFlow (.meas) Binary Format Specification
 
 **Version 1.0** — March 2026
 
-This document specifies the binary file format for OpenMeasure (.omx) files independently of any implementation. Any conforming reader/writer in any language (C#, C, Python, Rust, MATLAB) MUST follow this specification.
+This document specifies the binary file format for MeasFlow (.meas) files independently of any implementation. Any conforming reader/writer in any language (C#, C, Python, Rust, MATLAB) MUST follow this specification.
 
 ---
 
@@ -49,7 +49,7 @@ String := [int32: byteLength] [bytes: UTF-8 data]
 
 ## 3. File Structure Overview
 
-An .omx file consists of a fixed-size header followed by a chain of segments:
+An .meas file consists of a fixed-size header followed by a chain of segments:
 
 ```
 ┌──────────────────────────────────┐  Offset 0
@@ -80,7 +80,7 @@ An .omx file consists of a fixed-size header followed by a chain of segments:
 
 | Offset | Size | Type    | Field              | Description                                      |
 |--------|------|---------|--------------------|--------------------------------------------------|
-| 0      | 4    | uint32  | Magic              | `0x00584D4F` = ASCII `"OMX\0"` (LE)              |
+| 0      | 4    | uint32  | Magic              | `0x5341454D` = ASCII `"MEAS\0"` (LE)              |
 | 4      | 2    | uint16  | Version            | Format version. Currently `1`.                    |
 | 6      | 2    | uint16  | Flags              | Reserved bit flags. Must be `0` for version 1.   |
 | 8      | 8    | int64   | FirstSegmentOffset | Absolute byte offset to the first segment. Usually `64`. |
@@ -92,7 +92,7 @@ An .omx file consists of a fixed-size header followed by a chain of segments:
 
 **Magic byte pattern** (hex): `4F 4D 58 00`
 
-**Version negotiation**: Readers MUST reject files with `Version > 1` unless they understand the newer version. Readers MUST reject files where `Magic ≠ 0x00584D4F`.
+**Version negotiation**: Readers MUST reject files with `Version > 1` unless they understand the newer version. Readers MUST reject files where `Magic ≠ 0x5341454D`.
 
 **SegmentCount**: This field is written as `0` initially and patched to the final count when the writer closes. A streaming reader that encounters `SegmentCount = 0` SHOULD walk the segment chain using `NextSegmentOffset` until reaching end-of-file.
 
@@ -141,7 +141,7 @@ Group :=
 
 Channel :=
   [String: name]
-  [byte: dataType]          // OmxDataType enum value
+  [byte: dataType]          // MeasDataType enum value
   [int32: propertyCount]
   Property[propertyCount]
 ```
@@ -220,7 +220,7 @@ Properties are key-value pairs attached to groups and channels.
 ```
 Property :=
   [String: key]             // UTF-8 property name
-  [byte: valueType]         // OmxDataType of the value
+  [byte: valueType]         // MeasDataType of the value
   [value: type-dependent]   // See below
 ```
 
@@ -241,27 +241,27 @@ Property :=
 
 | Key                    | Type      | Description                              |
 |------------------------|-----------|------------------------------------------|
-| `omx.bus_def`          | Binary    | Serialized bus channel definition (§10)  |
-| `omx.source_channel`   | Utf8String| Name of the raw source channel           |
-| `omx.start_bit`        | Int32     | Signal start bit position                |
-| `omx.bit_length`       | Int32     | Signal bit length                        |
-| `omx.factor`           | Float64   | Signal scaling factor                    |
-| `omx.offset`           | Float64   | Signal scaling offset                    |
-| `omx.stats.count`      | Int64     | Sample count (statistics)                |
-| `omx.stats.min`        | Float64   | Minimum value                            |
-| `omx.stats.max`        | Float64   | Maximum value                            |
-| `omx.stats.sum`        | Float64   | Sum of all values                        |
-| `omx.stats.mean`       | Float64   | Arithmetic mean                          |
-| `omx.stats.variance`   | Float64   | Population variance                      |
-| `omx.stats.stddev`     | Float64   | Population standard deviation            |
-| `omx.stats.first`      | Float64   | First sample value                       |
-| `omx.stats.last`       | Float64   | Last sample value                        |
+| `MEAS.bus_def`          | Binary    | Serialized bus channel definition (§10)  |
+| `MEAS.source_channel`   | Utf8String| Name of the raw source channel           |
+| `MEAS.start_bit`        | Int32     | Signal start bit position                |
+| `MEAS.bit_length`       | Int32     | Signal bit length                        |
+| `MEAS.factor`           | Float64   | Signal scaling factor                    |
+| `MEAS.offset`           | Float64   | Signal scaling offset                    |
+| `MEAS.stats.count`      | Int64     | Sample count (statistics)                |
+| `MEAS.stats.min`        | Float64   | Minimum value                            |
+| `MEAS.stats.max`        | Float64   | Maximum value                            |
+| `MEAS.stats.sum`        | Float64   | Sum of all values                        |
+| `MEAS.stats.mean`       | Float64   | Arithmetic mean                          |
+| `MEAS.stats.variance`   | Float64   | Population variance                      |
+| `MEAS.stats.stddev`     | Float64   | Population standard deviation            |
+| `MEAS.stats.first`      | Float64   | First sample value                       |
+| `MEAS.stats.last`       | Float64   | Last sample value                        |
 
 ---
 
 ## 10. Bus Metadata (AUTOSAR)
 
-When a group represents a bus channel (CAN, LIN, FlexRay, etc.), the complete bus definition is stored as a binary blob in the group property `omx.bus_def`.
+When a group represents a bus channel (CAN, LIN, FlexRay, etc.), the complete bus definition is stored as a binary blob in the group property `MEAS.bus_def`.
 
 ### Bus Metadata Format
 
@@ -513,7 +513,7 @@ Total: `18 + payloadLength` bytes per frame
 
 ## 12. Streaming Model
 
-The OMX format is designed for **true streaming** — data can be written and consumed incrementally.
+The MEAS format is designed for **true streaming** — data can be written and consumed incrementally.
 
 ### 12.1 Write Streaming
 
@@ -585,7 +585,7 @@ For each new sample x:
   last = x
 ```
 
-Statistics are stored as channel properties with `omx.stats.*` keys (see §9).
+Statistics are stored as channel properties with `MEAS.stats.*` keys (see §9).
 
 ---
 
@@ -594,7 +594,7 @@ Statistics are stored as channel properties with `omx.stats.*` keys (see §9).
 ### Writer conformance
 
 A conforming writer MUST:
-- Write a valid 64-byte file header with `Magic = 0x00584D4F` and `Version = 1`
+- Write a valid 64-byte file header with `Magic = 0x5341454D` and `Version = 1`
 - Write at least one Metadata segment before any Data segments
 - Use little-endian encoding for all multi-byte values
 - Store valid `NextSegmentOffset` in every segment header
@@ -621,11 +621,11 @@ A conforming reader SHOULD:
 
 ## Appendix A: Hex Dump of a Minimal File
 
-A minimal valid .omx file with one group, one Float32 channel, and one sample (value `42.0`):
+A minimal valid .meas file with one group, one Float32 channel, and one sample (value `42.0`):
 
 ```
 Offset  Hex                                              ASCII
-00000   4F 4D 58 00 01 00 00 00  40 00 00 00 00 00 00 00  OMX.....@.......
+00000   4F 4D 58 00 01 00 00 00  40 00 00 00 00 00 00 00  MEAS.....@.......
 00010   00 00 00 00 00 00 00 00  02 00 00 00 00 00 00 00  ................
 00020   xx xx xx xx xx xx xx xx  xx xx xx xx xx xx xx xx  [GUID - 16 B]
 00030   xx xx xx xx xx xx xx xx  00 00 00 00 00 00 00 00  [timestamp][pad]
@@ -665,4 +665,4 @@ Offset  Hex                                              ASCII
 
 ---
 
-*This specification is released under the MIT License as part of the OpenMeasure project.*
+*This specification is released under the MIT License as part of the MeasFlow project.*

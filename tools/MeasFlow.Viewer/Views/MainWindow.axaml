@@ -1,0 +1,151 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MeasFlow.Viewer.ViewModels"
+        xmlns:m="using:MeasFlow.Viewer.Models"
+        xmlns:sp="clr-namespace:ScottPlot.Avalonia;assembly=ScottPlot.Avalonia"
+        x:Class="MeasFlow.Viewer.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding Title}"
+        Width="1280" Height="800"
+        DragDrop.AllowDrop="True"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.header">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="8,8,8,4" />
+        </Style>
+        <Style Selector="TextBlock.mono">
+            <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New, monospace" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+        <!-- Menu Bar -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open..." Name="MenuOpen" />
+                <MenuItem Header="_Close" Command="{Binding CloseFileCommand}" />
+                <Separator />
+                <MenuItem Header="E_xit" Name="MenuExit" />
+            </MenuItem>
+        </Menu>
+
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource SystemControlBackgroundChromeMediumBrush}" Padding="8,4">
+            <TextBlock Text="{Binding StatusText}" FontSize="12" />
+        </Border>
+
+        <!-- Main Content -->
+        <Grid ColumnDefinitions="280,Auto,*">
+
+            <!-- Left: Tree + File Info -->
+            <DockPanel Grid.Column="0" Background="{DynamicResource SystemControlBackgroundAltHighBrush}">
+
+                <!-- File Info -->
+                <Border DockPanel.Dock="Bottom" Padding="8" BorderThickness="0,1,0,0"
+                        BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" IsVisible="{Binding IsFileOpen}">
+                    <TextBlock Text="{Binding FileInfo}" Classes="mono" FontSize="11"
+                               TextWrapping="Wrap" />
+                </Border>
+
+                <!-- Channel Tree -->
+                <TreeView ItemsSource="{Binding TreeNodes}"
+                          SelectedItem="{Binding SelectedNode}"
+                          Margin="4">
+                    <TreeView.ItemTemplate>
+                        <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="m:ChannelTreeNode">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <CheckBox IsChecked="{Binding IsChecked}"
+                                          IsVisible="{Binding !IsGroup}"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,2,0" />
+                                <TextBlock Text="{Binding Icon}" FontSize="14" />
+                                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </TreeDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </DockPanel>
+
+            <!-- Splitter -->
+            <GridSplitter Grid.Column="1" Width="4" Background="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+            <!-- Right: Tab content -->
+            <TabControl Grid.Column="2" Margin="4">
+
+                <!-- Plot Tab -->
+                <TabItem Header="Plot" IsVisible="{Binding HasPlot}">
+                    <sp:AvaPlot Name="MainPlot" />
+                </TabItem>
+
+                <!-- Statistics Tab -->
+                <TabItem Header="Statistics" IsVisible="{Binding HasStatistics}">
+                    <DataGrid ItemsSource="{Binding StatisticsRows}"
+                              IsReadOnly="True"
+                              GridLinesVisibility="Horizontal"
+                              CanUserReorderColumns="True"
+                              CanUserResizeColumns="True"
+                              CanUserSortColumns="True"
+                              FontSize="12"
+                              FontFamily="Cascadia Code, Consolas, Courier New, monospace">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Channel"  Binding="{Binding Name}"    Width="*" />
+                            <DataGridTextColumn Header="Unit"     Binding="{Binding Unit}"    Width="70" />
+                            <DataGridTextColumn Header="Samples"  Binding="{Binding Samples}" Width="90" />
+                            <DataGridTextColumn Header="Min"      Binding="{Binding Min}"     Width="100" />
+                            <DataGridTextColumn Header="Max"      Binding="{Binding Max}"     Width="100" />
+                            <DataGridTextColumn Header="Mean"     Binding="{Binding Mean}"    Width="100" />
+                            <DataGridTextColumn Header="StdDev"   Binding="{Binding StdDev}"  Width="100" />
+                            <DataGridTextColumn Header="Sum"      Binding="{Binding Sum}"     Width="100" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </TabItem>
+
+                <!-- Frames Tab -->
+                <TabItem Header="Frames" IsVisible="{Binding HasFrames}">
+                    <DataGrid ItemsSource="{Binding FrameRows}"
+                              IsReadOnly="True"
+                              GridLinesVisibility="Horizontal"
+                              CanUserReorderColumns="True"
+                              CanUserResizeColumns="True"
+                              CanUserSortColumns="True"
+                              FontSize="12"
+                              FontFamily="Cascadia Code, Consolas, Courier New, monospace">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="#" Binding="{Binding Index}" Width="60" />
+                            <DataGridTextColumn Header="Time" Binding="{Binding Timestamp}" Width="140" />
+                            <DataGridTextColumn Header="ID" Binding="{Binding FrameId}" Width="80" />
+                            <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="50" />
+                            <DataGridTextColumn Header="Frame" Binding="{Binding FrameName}" Width="120" />
+                            <DataGridTextColumn Header="Payload (Hex)" Binding="{Binding PayloadHex}" Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </TabItem>
+
+                <!-- Signals Tab -->
+                <TabItem Header="Signals" IsVisible="{Binding HasSignals}">
+                    <sp:AvaPlot Name="SignalPlot" IsVisible="{Binding HasSignalPlot}" />
+                </TabItem>
+
+                <!-- Welcome / Drop Zone -->
+                <TabItem Header="Welcome" IsVisible="{Binding !IsFileOpen}">
+                    <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}" CornerRadius="8" Margin="20"
+                            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}" BorderThickness="2"
+                            Padding="40">
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                            <TextBlock Text="MeasFlow Viewer" FontSize="28" FontWeight="Light"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="Drop an .meas file here or use File &gt; Open"
+                                       FontSize="16" Foreground="{DynamicResource SystemControlForegroundBaseMediumBrush}"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </TabItem>
+
+            </TabControl>
+        </Grid>
+    </DockPanel>
+</Window>

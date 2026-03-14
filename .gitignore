@@ -3,5 +3,8 @@ obj/
 *.user
 *.suo
 .vs/
-*.omx
+# demo_measurement.meas is committed intentionally
 TestResults/
+*.local
+*.local.json
+*.log

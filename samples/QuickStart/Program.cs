@@ -1,18 +1,18 @@
-using OpenMeasure;
-using OpenMeasure.Bus;
+﻿using MeasFlow;
+using MeasFlow.Bus;
 
 // === WRITE: Motor test bench measurement ===
 Console.WriteLine("=== Writing measurement data ===");
 
-using (var writer = OmxFile.CreateWriter("demo_measurement.omx"))
+using (var writer = MeasFile.CreateWriter("demo_measurement.meas"))
 {
     // Group 1: Analog sensors with timestamps
     var motor = writer.AddGroup("Motor");
     motor.Properties["Prüfstand"] = "P42";
     motor.Properties["Operator"] = "Max Mustermann";
-    motor.Properties["TestStart"] = OmxTimestamp.Now;
+    motor.Properties["TestStart"] = MeasTimestamp.Now;
 
-    var time = motor.AddChannel<OmxTimestamp>("Time");
+    var time = motor.AddChannel<MeasTimestamp>("Time");
     var rpm = motor.AddChannel<float>("RPM");
     var temp = motor.AddChannel<double>("OilTemperature");
 
@@ -20,7 +20,7 @@ using (var writer = OmxFile.CreateWriter("demo_measurement.omx"))
     temp.Properties["Unit"] = "°C";
 
     // Simulate 1 second of data at 1kHz
-    var startTime = OmxTimestamp.Now;
+    var startTime = MeasTimestamp.Now;
     var rng = new Random(42);
     for (int i = 0; i < 1000; i++)
     {
@@ -94,7 +94,7 @@ using (var writer = OmxFile.CreateWriter("demo_measurement.omx"))
 // === READ: Open and inspect the file ===
 Console.WriteLine("\n=== Reading measurement data ===");
 
-using (var reader = OmxFile.OpenRead("demo_measurement.omx"))
+using (var reader = MeasFile.OpenRead("demo_measurement.meas"))
 {
     Console.WriteLine($"  File created: {reader.CreatedAt}");
     Console.WriteLine($"  Groups: {reader.Groups.Count}");
@@ -146,15 +146,13 @@ using (var reader = OmxFile.OpenRead("demo_measurement.omx"))
 
     // Read analog data
     var rpmData = reader["Motor"]["RPM"].ReadAll<float>();
-    var timeData = reader["Motor"]["Time"].ReadAll<OmxTimestamp>();
+    var timeData = reader["Motor"]["Time"].ReadAll<MeasTimestamp>();
     Console.WriteLine($"\n  Motor RPM: first={rpmData[0]:F1}, last={rpmData[^1]:F1}");
     Console.WriteLine($"  Time range: {timeData[0]} → {timeData[^1]}");
     Console.WriteLine($"  Duration: {(timeData[^1] - timeData[0]).TotalMilliseconds:F1} ms");
 
-    var fileSize = new FileInfo("demo_measurement.omx").Length;
+    var fileSize = new FileInfo("demo_measurement.meas").Length;
     Console.WriteLine($"\n  File size: {fileSize:N0} bytes ({fileSize / 1024.0:F1} KB)");
 }
 
-// Cleanup
-File.Delete("demo_measurement.omx");
 Console.WriteLine("\nDone.");
