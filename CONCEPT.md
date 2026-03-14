@@ -204,7 +204,7 @@ writer.Flush();
 ```csharp
 using var writer = MeasFile.CreateWriter("messung.meas", new MeasWriterOptions
 {
-    Compression = OmxCompression.DeltaLz4,
+    Compression = MeasCompression.DeltaLz4,
     SegmentSize = 64 * 1024 * 1024,  // 64 MB Segmente
     BufferSize  = 4 * 1024 * 1024,   // 4 MB Write-Buffer
 });
@@ -274,15 +274,15 @@ float[] rpmInRange = timeRange["RPM"].AsFloat32().ReadAll().ToArray();
 
 ```csharp
 // CSV-Export
-await OmxConvert.ToCsvAsync(file["Motor"], "export.csv");
+await MeasConvert.ToCsvAsync(file["Motor"], "export.csv");
 
 // Pandas-kompatibel (Arrow IPC)
-await OmxConvert.ToArrowAsync(file["Motor"], "export.arrow");
+await MeasConvert.ToArrowAsync(file["Motor"], "export.arrow");
 
 // TDMS-Import
 using var tdmsFile = TdmsImporter.Open("legacy.tdms");
 using var writer = MeasFile.CreateWriter("converted.meas");
-await OmxConvert.FromTdms(tdmsFile, writer);
+await MeasConvert.FromTdms(tdmsFile, writer);
 ```
 
 ---
@@ -375,7 +375,7 @@ private static readonly ArrayPool<byte> Pool = ArrayPool<byte>.Shared;
 private readonly Channel<DataSegment> _writeChannel;
 
 // 7. Source Generators für Serialisierung
-[OmxSerializable]
+[MeasSerializable]
 public partial record SensorReading(float X, float Y, float Z, long Timestamp);
 ```
 
@@ -410,7 +410,7 @@ MeasFlow/
 │   │       └── ChannelStatistics.cs
 │   │
 │   ├── MeasFlow.Generators/          # Source Generators
-│   │   └── OmxSerializableGenerator.cs
+│   │   └── MeasSerializableGenerator.cs
 │   │
 │   └── MeasFlow.Converters/          # Import/Export
 │       ├── CsvConverter.cs
@@ -475,20 +475,20 @@ Thread-Safe         ✗       ✗       ✗       ✓ (lock-free Writer)
 
 ### 9.1 Custom Kompression
 ```csharp
-public interface IOmxCompressor
+public interface IMeasCompressor
 {
-    OmxCompression Id { get; }
+    MeasCompression Id { get; }
     int Compress(ReadOnlySpan<byte> source, Span<byte> destination);
     int Decompress(ReadOnlySpan<byte> source, Span<byte> destination);
 }
 
 // Registrierung
-OmxCompression.Register(0x10, new MyCustomCompressor());
+MeasCompression.Register(0x10, new MyCustomCompressor());
 ```
 
 ### 9.2 Custom Datentypen
 ```csharp
-[OmxSerializable]
+[MeasSerializable]
 public partial record GpsCoordinate(double Lat, double Lon, double Alt);
 
 // Source Generator erzeugt automatisch Serializer

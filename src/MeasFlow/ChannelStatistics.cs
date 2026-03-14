@@ -150,7 +150,7 @@ internal static class NumericConverter
         if (typeof(T) == typeof(uint)) return Unsafe.As<T, uint>(ref value);
         if (typeof(T) == typeof(ulong)) return Unsafe.As<T, ulong>(ref value);
         if (typeof(T) == typeof(MeasTimestamp)) return Unsafe.As<T, MeasTimestamp>(ref value).Nanoseconds;
-        return 0; // bool, OmxTimeSpan, etc. — no meaningful stats
+        return 0; // bool, MeasTimeSpan, etc. — no meaningful stats
     }
 
     public static bool IsNumeric<T>() where T : unmanaged =>

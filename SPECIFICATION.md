@@ -90,7 +90,7 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 | 48     | 8    | int64   | CreatedAtNanos     | File creation time as nanoseconds since Unix epoch. |
 | 56     | 8    | int64   | Reserved           | Must be `0`. Padding to exactly 64 bytes.         |
 
-**Magic byte pattern** (hex): `4F 4D 58 00`
+**Magic byte pattern** (hex): `4D 45 41 53`
 
 **Version negotiation**: Readers MUST reject files with `Version > 1` unless they understand the newer version. Readers MUST reject files where `Magic ≠ 0x5341454D`.
 

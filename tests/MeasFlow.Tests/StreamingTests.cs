@@ -149,11 +149,11 @@ public class StreamingTests : IDisposable
         var fileBytes = File.ReadAllBytes(path);
         Assert.True(fileBytes.Length >= FileHeader.Size);
 
-        // Verify magic bytes: MEAS\0
-        Assert.Equal((byte)'O', fileBytes[0]);
-        Assert.Equal((byte)'M', fileBytes[1]);
-        Assert.Equal((byte)'X', fileBytes[2]);
-        Assert.Equal((byte)0, fileBytes[3]);
+        // Verify magic bytes: MEAS
+        Assert.Equal((byte)'M', fileBytes[0]);
+        Assert.Equal((byte)'E', fileBytes[1]);
+        Assert.Equal((byte)'A', fileBytes[2]);
+        Assert.Equal((byte)'S', fileBytes[3]);
 
         // Verify version = 1
         ushort version = BinaryPrimitives.ReadUInt16LittleEndian(fileBytes.AsSpan(4));

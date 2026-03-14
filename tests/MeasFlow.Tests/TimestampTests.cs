@@ -40,7 +40,7 @@ public class TimestampTests
     }
 
     [Fact]
-    public void Subtraction_ReturnsOmxTimeSpan()
+    public void Subtraction_ReturnsMeasTimeSpan()
     {
         var a = MeasTimestamp.FromSeconds(10.0);
         var b = MeasTimestamp.FromSeconds(7.5);

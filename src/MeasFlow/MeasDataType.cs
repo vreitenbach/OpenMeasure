@@ -20,7 +20,7 @@ public enum MeasDataType : byte
 
     // Timestamps
     Timestamp = 0x20, // MeasTimestamp (int64 nanoseconds since Unix epoch)
-    TimeSpan  = 0x21, // OmxTimeSpan (int64 nanoseconds)
+    TimeSpan  = 0x21, // MeasTimeSpan (int64 nanoseconds)
 
     // Text & binary
     Utf8String = 0x30,
@@ -67,7 +67,7 @@ public static class MeasDataTypeExtensions
         if (typeof(T) == typeof(float)) return MeasDataType.Float32;
         if (typeof(T) == typeof(double)) return MeasDataType.Float64;
         if (typeof(T) == typeof(MeasTimestamp)) return MeasDataType.Timestamp;
-        if (typeof(T) == typeof(OmxTimeSpan)) return MeasDataType.TimeSpan;
+        if (typeof(T) == typeof(MeasTimeSpan)) return MeasDataType.TimeSpan;
         if (typeof(T) == typeof(bool)) return MeasDataType.Bool;
 
         throw new NotSupportedException($"Type {typeof(T).Name} is not a supported MEAS data type.");
