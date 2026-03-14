@@ -14,8 +14,8 @@
 
 ## Cross-Language Implementations
 
-- [ ] C Reader
-- [ ] C Writer
+- [x] C Reader
+- [x] C Writer
 - [x] Python Reader
 - [x] Python Writer
 - [ ] Rust Reader
