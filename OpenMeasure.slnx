@@ -11,4 +11,7 @@
   <Folder Name="/benchmarks/">
     <Project Path="benchmarks/OpenMeasure.Benchmarks/OpenMeasure.Benchmarks.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/OpenMeasure.Viewer/OpenMeasure.Viewer.csproj" />
+  </Folder>
 </Solution>
