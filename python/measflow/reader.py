@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import struct
+from dataclasses import dataclass
 from typing import Any, Union
 
 import numpy as np
@@ -17,6 +19,25 @@ from measflow._codec import (
     decode_chunk_header,
     SEGMENT_HEADER_SIZE,
 )
+
+
+@dataclass
+class ChannelStatistics:
+    """Pre-computed channel statistics stored as ``meas.stats.*`` properties."""
+
+    count: int
+    min: float
+    max: float
+    sum: float
+    mean: float
+    variance: float
+    first: float
+    last: float
+
+    @property
+    def std_dev(self) -> float:
+        """Population standard deviation (derived from variance)."""
+        return math.sqrt(max(0.0, self.variance))
 
 
 class MeasChannel:
@@ -37,6 +58,26 @@ class MeasChannel:
     @property
     def sample_count(self) -> int:
         return sum(n for n, _ in self._chunks)
+
+    @property
+    def statistics(self) -> ChannelStatistics | None:
+        """Return pre-computed statistics from channel properties, or None if not available."""
+        props = self.properties
+        if "meas.stats.count" not in props:
+            return None
+        count = int(props["meas.stats.count"].value)
+        if count == 0:
+            return None
+        return ChannelStatistics(
+            count=count,
+            min=float(props["meas.stats.min"].value),
+            max=float(props["meas.stats.max"].value),
+            sum=float(props["meas.stats.sum"].value),
+            mean=float(props["meas.stats.mean"].value),
+            variance=float(props["meas.stats.variance"].value),
+            first=float(props["meas.stats.first"].value),
+            last=float(props["meas.stats.last"].value),
+        )
 
     def read_all(self) -> Union[np.ndarray, list]:
         """Return all samples as a numpy array (fixed-size types) or a list (variable-size types)."""

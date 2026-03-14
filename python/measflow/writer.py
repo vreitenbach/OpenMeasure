@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import struct
 import time
 import uuid
@@ -9,7 +10,7 @@ from typing import Any, Union
 
 import numpy as np
 
-from measflow.types import MeasDataType, MeasTimestamp, MeasValue, _TYPE_NUMPY
+from measflow.types import MeasDataType, MeasTimestamp, MeasValue, _TYPE_NUMPY, is_numeric
 from measflow._codec import (
     FileHeader,
     SegmentHeader,
@@ -23,6 +24,65 @@ from measflow._codec import (
 )
 
 
+class _StatisticsAccumulator:
+    """Incremental statistics using Welford's online algorithm."""
+
+    __slots__ = ("_count", "_min", "_max", "_sum", "_mean", "_m2", "_first", "_last")
+
+    def __init__(self) -> None:
+        self._count: int = 0
+        self._min: float = 0.0
+        self._max: float = 0.0
+        self._sum: float = 0.0
+        self._mean: float = 0.0
+        self._m2: float = 0.0
+        self._first: float = 0.0
+        self._last: float = 0.0
+
+    def update(self, value: float) -> None:
+        self._count += 1
+        self._last = value
+        if self._count == 1:
+            self._first = value
+            self._min = value
+            self._max = value
+            self._sum = value
+            self._mean = value
+            self._m2 = 0.0
+            return
+        if value < self._min:
+            self._min = value
+        if value > self._max:
+            self._max = value
+        self._sum += value
+        delta = value - self._mean
+        self._mean += delta / self._count
+        self._m2 += delta * (value - self._mean)
+
+    def write_to_properties(self, props: dict[str, Any]) -> None:
+        # Population variance: M2 / count (§13). When count <= 1, M2 == 0 so variance == 0.
+        variance = self._m2 / self._count if self._count > 0 else 0.0
+        props["meas.stats.count"] = MeasValue(MeasDataType.Int64, self._count)
+        props["meas.stats.min"] = MeasValue(MeasDataType.Float64, self._min)
+        props["meas.stats.max"] = MeasValue(MeasDataType.Float64, self._max)
+        props["meas.stats.sum"] = MeasValue(MeasDataType.Float64, self._sum)
+        props["meas.stats.mean"] = MeasValue(MeasDataType.Float64, self._mean)
+        props["meas.stats.variance"] = MeasValue(MeasDataType.Float64, variance)
+        props["meas.stats.first"] = MeasValue(MeasDataType.Float64, self._first)
+        props["meas.stats.last"] = MeasValue(MeasDataType.Float64, self._last)
+
+    def write_to_properties_placeholder(self, props: dict[str, Any]) -> None:
+        """Write zeroed stats so the metadata reserves space for later patching."""
+        props["meas.stats.count"] = MeasValue(MeasDataType.Int64, 0)
+        props["meas.stats.min"] = MeasValue(MeasDataType.Float64, 0.0)
+        props["meas.stats.max"] = MeasValue(MeasDataType.Float64, 0.0)
+        props["meas.stats.sum"] = MeasValue(MeasDataType.Float64, 0.0)
+        props["meas.stats.mean"] = MeasValue(MeasDataType.Float64, 0.0)
+        props["meas.stats.variance"] = MeasValue(MeasDataType.Float64, 0.0)
+        props["meas.stats.first"] = MeasValue(MeasDataType.Float64, 0.0)
+        props["meas.stats.last"] = MeasValue(MeasDataType.Float64, 0.0)
+
+
 class ChannelWriter:
     """Buffers samples for a single channel."""
 
@@ -32,14 +92,24 @@ class ChannelWriter:
         self.properties: dict[str, Any] = {}
         self._global_index: int = 0  # assigned when metadata is written
         self._samples: list = []
+        self._stats: _StatisticsAccumulator | None = (
+            _StatisticsAccumulator() if is_numeric(dtype) else None
+        )
 
     def write(self, value: Any) -> None:
         """Append a single sample."""
         self._samples.append(value)
+        if self._stats is not None:
+            self._stats.update(float(value))
 
     def write_bulk(self, values: Any) -> None:
         """Append an array or iterable of samples."""
-        self._samples.extend(values)
+        if self._stats is not None:
+            for v in values:
+                self._samples.append(v)
+                self._stats.update(float(v))
+        else:
+            self._samples.extend(values)
 
     @property
     def sample_count(self) -> int:
@@ -75,11 +145,18 @@ class ChannelWriter:
             return b"".join(parts)
         raise ValueError(f"Cannot serialize channel type {dt!r}")
 
-    def _to_channel_def(self) -> ChannelDef:
+    def _to_channel_def(self, with_stats: bool = False) -> ChannelDef:
         props = {
             k: (v if isinstance(v, MeasValue) else MeasValue.from_python(v))
             for k, v in self.properties.items()
         }
+        if self._stats is not None:
+            if with_stats:
+                self._stats.write_to_properties(props)
+            else:
+                # Write placeholder stats (all zeros) so the metadata size is
+                # reserved and can be patched in-place on close.
+                _StatisticsAccumulator().write_to_properties_placeholder(props)
         return ChannelDef(self.name, self.data_type, props)
 
 
@@ -99,18 +176,20 @@ class GroupWriter:
         self._channels.append(ch)
         return ch
 
-    def _to_group_def(self) -> GroupDef:
+    def _to_group_def(self, with_stats: bool = False) -> GroupDef:
         props = {
             k: (v if isinstance(v, MeasValue) else MeasValue.from_python(v))
             for k, v in self.properties.items()
         }
-        return GroupDef(self.name, props, [ch._to_channel_def() for ch in self._channels])
+        return GroupDef(self.name, props, [ch._to_channel_def(with_stats=with_stats) for ch in self._channels])
 
 
 class MeasWriter:
     """Streaming writer for .meas files (§12.1).
 
     Supports incremental flush: each call to flush() writes a new Data segment.
+    Channel statistics (§13) are computed incrementally and patched into the
+    metadata segment on close so they always reflect the full dataset.
     Use as a context manager or call close() explicitly.
     """
 
@@ -119,6 +198,7 @@ class MeasWriter:
         self._groups: list[GroupWriter] = []
         self._segment_count = 0
         self._metadata_written = False
+        self._metadata_content_offset: int = 0  # file offset of metadata content
         self._created_ns = time.time_ns()
         self._file_id = uuid.uuid4().bytes
         # Open file immediately and write placeholder header
@@ -155,6 +235,11 @@ class MeasWriter:
             return
         try:
             self.flush()
+            # Patch the metadata segment in-place with final statistics (§12.5).
+            # Stats properties always occupy a fixed number of bytes (fixed-size
+            # types), so the content length does not change.
+            if self._metadata_written:
+                self._patch_metadata_stats()
             # Patch SegmentCount in file header
             hdr = FileHeader(
                 created_at_nanos=self._created_ns,
@@ -193,9 +278,17 @@ class MeasWriter:
         self._file.seek(0)
         self._file.write(hdr.to_bytes())
         self._file.seek(0, 2)  # seek to end
-        # Write metadata segment
-        meta_content = encode_metadata([g._to_group_def() for g in self._groups])
+        # Write metadata segment with placeholder stats (will be patched on close)
+        meta_content = encode_metadata([g._to_group_def(with_stats=False) for g in self._groups])
+        self._metadata_content_offset = self._file.tell() + SEGMENT_HEADER_SIZE
         self._write_segment(SegmentType.METADATA, meta_content, chunk_count=0)
+
+    def _patch_metadata_stats(self) -> None:
+        """Overwrite the metadata segment content with final statistics in-place."""
+        final_meta = encode_metadata([g._to_group_def(with_stats=True) for g in self._groups])
+        self._file.seek(self._metadata_content_offset)
+        self._file.write(final_meta)
+        self._file.seek(0, 2)  # seek back to end
 
     def _write_segment(self, seg_type: int, content: bytes, chunk_count: int) -> None:
         seg_start = self._file.tell()

@@ -354,3 +354,119 @@ def test_read_csharp_demo_file():
         # Sanity: RPM values should be in a plausible range
         assert rpm.min() > 2000
         assert rpm.max() < 4000
+
+
+def test_read_csharp_demo_file_statistics():
+    """Statistics written by the C# writer are readable by the Python reader."""
+    from measflow import ChannelStatistics
+    with MeasReader(str(DEMO_FILE)) as r:
+        stats = r["Motor"]["RPM"].statistics
+        assert stats is not None
+        assert isinstance(stats, ChannelStatistics)
+        assert stats.count == 1000
+        assert stats.min > 2000
+        assert stats.max < 4000
+        assert stats.mean > 2000
+        assert stats.variance > 0
+        assert stats.std_dev > 0
+
+
+# ── Channel statistics (§13) ─────────────────────────────────────────────────
+
+def test_statistics_basic(tmp_meas):
+    """Statistics are computed and stored for numeric channels."""
+    data = [1.0, 2.0, 3.0, 4.0, 5.0]
+    with MeasWriter(tmp_meas) as w:
+        g = w.add_group("G")
+        ch = g.add_channel("X", MeasDataType.Float64)
+        ch.write_bulk(data)
+
+    with MeasReader(tmp_meas) as r:
+        stats = r["G"]["X"].statistics
+    assert stats is not None
+    assert stats.count == 5
+    assert stats.min == pytest.approx(1.0)
+    assert stats.max == pytest.approx(5.0)
+    assert stats.sum == pytest.approx(15.0)
+    assert stats.mean == pytest.approx(3.0)
+    assert stats.first == pytest.approx(1.0)
+    assert stats.last == pytest.approx(5.0)
+    # Population variance of [1,2,3,4,5]: sum of squared deviations from mean / n = 10/5 = 2.0
+    assert stats.variance == pytest.approx(2.0)
+    import math
+    assert stats.std_dev == pytest.approx(math.sqrt(2.0))
+
+
+def test_statistics_int32(tmp_meas):
+    """Statistics work for integer channel types."""
+    data = [-10, 0, 10, 20, 30]
+    with MeasWriter(tmp_meas) as w:
+        g = w.add_group("G")
+        ch = g.add_channel("V", MeasDataType.Int32)
+        ch.write_bulk(data)
+
+    with MeasReader(tmp_meas) as r:
+        stats = r["G"]["V"].statistics
+    assert stats is not None
+    assert stats.count == 5
+    assert stats.min == pytest.approx(-10.0)
+    assert stats.max == pytest.approx(30.0)
+    assert stats.mean == pytest.approx(10.0)
+
+
+def test_statistics_single_sample(tmp_meas):
+    """Statistics with a single sample: variance = 0."""
+    with MeasWriter(tmp_meas) as w:
+        g = w.add_group("G")
+        ch = g.add_channel("V", MeasDataType.Float32)
+        ch.write(7.0)
+
+    with MeasReader(tmp_meas) as r:
+        stats = r["G"]["V"].statistics
+    assert stats is not None
+    assert stats.count == 1
+    assert stats.min == pytest.approx(7.0)
+    assert stats.max == pytest.approx(7.0)
+    assert stats.variance == pytest.approx(0.0)
+    assert stats.first == pytest.approx(7.0)
+    assert stats.last == pytest.approx(7.0)
+
+
+def test_statistics_streaming(tmp_meas):
+    """Statistics accumulate correctly across multiple flush() calls."""
+    with MeasWriter(tmp_meas) as w:
+        g = w.add_group("G")
+        ch = g.add_channel("V", MeasDataType.Float64)
+        ch.write_bulk([1.0, 2.0, 3.0])
+        w.flush()
+        ch.write_bulk([4.0, 5.0])
+
+    with MeasReader(tmp_meas) as r:
+        stats = r["G"]["V"].statistics
+    assert stats is not None
+    assert stats.count == 5
+    assert stats.min == pytest.approx(1.0)
+    assert stats.max == pytest.approx(5.0)
+    assert stats.mean == pytest.approx(3.0)
+
+
+def test_statistics_not_available_for_binary(tmp_meas):
+    """Binary channels do not have statistics."""
+    with MeasWriter(tmp_meas) as w:
+        g = w.add_group("G")
+        ch = g.add_channel("B", MeasDataType.Binary)
+        ch.write(b"\x01\x02")
+
+    with MeasReader(tmp_meas) as r:
+        assert r["G"]["B"].statistics is None
+
+
+def test_statistics_not_available_for_string(tmp_meas):
+    """String channels do not have statistics."""
+    with MeasWriter(tmp_meas) as w:
+        g = w.add_group("G")
+        ch = g.add_channel("S", MeasDataType.Utf8String)
+        ch.write("hello")
+
+    with MeasReader(tmp_meas) as r:
+        assert r["G"]["S"].statistics is None
