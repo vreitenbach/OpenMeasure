@@ -1,7 +1,7 @@
 ﻿"""MeasFlow — Python reader/writer for the .meas binary measurement format."""
 
 from measflow.types import MeasDataType, MeasTimestamp, MeasValue
-from measflow.reader import MeasReader, MeasGroup, MeasChannel
+from measflow.reader import MeasReader, MeasGroup, MeasChannel, ChannelStatistics
 from measflow.writer import MeasWriter, GroupWriter, ChannelWriter
 from measflow.bus import (
     BusChannelDefinition, BusConfig, BusType,
@@ -20,7 +20,7 @@ __all__ = [
     # Core types
     "MeasDataType", "MeasTimestamp", "MeasValue",
     # Reader
-    "MeasReader", "MeasGroup", "MeasChannel",
+    "MeasReader", "MeasGroup", "MeasChannel", "ChannelStatistics",
     # Writer
     "MeasWriter", "GroupWriter", "ChannelWriter",
     # Bus metadata (§10)
