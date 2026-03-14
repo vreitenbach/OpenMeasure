@@ -97,6 +97,14 @@ public sealed class OmxReader : IDisposable
                 globalIndex++;
             }
             var group = new OmxGroup(gd.Name, gd.Properties, channels);
+
+            // Deserialize bus definition if present
+            if (gd.Properties.TryGetValue("omx.bus_def", out var busDefValue)
+                && busDefValue.Type == OmxDataType.Binary)
+            {
+                group.BusDefinition = BusMetadataEncoder.Decode(busDefValue.AsBinary());
+            }
+
             _groups.Add(group);
             _groupsByName[gd.Name] = group;
         }

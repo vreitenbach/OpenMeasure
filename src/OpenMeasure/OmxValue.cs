@@ -1,23 +1,20 @@
-using System.Runtime.InteropServices;
-
 namespace OpenMeasure;
 
 /// <summary>
-/// Tagged union for property values. Supports all OMX data types as single values plus strings.
+/// Tagged union for property values. Supports all OMX data types as single values, strings, and binary.
 /// </summary>
-[StructLayout(LayoutKind.Explicit)]
 public readonly struct OmxValue : IEquatable<OmxValue>
 {
-    [FieldOffset(0)] private readonly long _intValue;
-    [FieldOffset(0)] private readonly double _floatValue;
-    [FieldOffset(8)] private readonly string? _stringValue;
-    [FieldOffset(16)] private readonly OmxDataType _type;
+    private readonly long _intValue;
+    private readonly double _floatValue;
+    private readonly object? _refValue; // string or byte[]
+    private readonly OmxDataType _type;
 
     public OmxDataType Type => _type;
 
     private OmxValue(long intValue, OmxDataType type)
     {
-        _stringValue = null;
+        _refValue = null;
         _floatValue = 0;
         _intValue = intValue;
         _type = type;
@@ -25,7 +22,7 @@ public readonly struct OmxValue : IEquatable<OmxValue>
 
     private OmxValue(double floatValue, OmxDataType type)
     {
-        _stringValue = null;
+        _refValue = null;
         _intValue = 0;
         _floatValue = floatValue;
         _type = type;
@@ -35,8 +32,16 @@ public readonly struct OmxValue : IEquatable<OmxValue>
     {
         _intValue = 0;
         _floatValue = 0;
-        _stringValue = stringValue;
+        _refValue = stringValue;
         _type = OmxDataType.Utf8String;
+    }
+
+    private OmxValue(byte[] binaryValue)
+    {
+        _intValue = 0;
+        _floatValue = 0;
+        _refValue = binaryValue;
+        _type = OmxDataType.Binary;
     }
 
     // Implicit conversions
@@ -47,36 +52,45 @@ public readonly struct OmxValue : IEquatable<OmxValue>
     public static implicit operator OmxValue(string value) => new(value);
     public static implicit operator OmxValue(bool value) => new(value ? 1L : 0L, OmxDataType.Bool);
     public static implicit operator OmxValue(OmxTimestamp value) => new(value.Nanoseconds, OmxDataType.Timestamp);
+    public static implicit operator OmxValue(byte[] value) => new(value);
 
     // Getters
     public int AsInt32() => (int)_intValue;
     public long AsInt64() => _intValue;
     public float AsFloat32() => (float)_floatValue;
     public double AsFloat64() => _floatValue;
-    public string AsString() => _stringValue ?? string.Empty;
+    public string AsString() => _refValue as string ?? string.Empty;
     public bool AsBool() => _intValue != 0;
     public OmxTimestamp AsTimestamp() => new(_intValue);
+    public byte[] AsBinary() => _refValue as byte[] ?? [];
 
     public bool Equals(OmxValue other)
     {
         if (_type != other._type) return false;
-        return _type == OmxDataType.Utf8String
-            ? _stringValue == other._stringValue
-            : _intValue == other._intValue;
+        return _type switch
+        {
+            OmxDataType.Utf8String => AsString() == other.AsString(),
+            OmxDataType.Binary => AsBinary().AsSpan().SequenceEqual(other.AsBinary()),
+            _ => _intValue == other._intValue,
+        };
     }
 
     public override bool Equals(object? obj) => obj is OmxValue v && Equals(v);
-    public override int GetHashCode() => _type == OmxDataType.Utf8String
-        ? HashCode.Combine(_type, _stringValue)
-        : HashCode.Combine(_type, _intValue);
+    public override int GetHashCode() => _type switch
+    {
+        OmxDataType.Utf8String => HashCode.Combine(_type, _refValue),
+        OmxDataType.Binary => HashCode.Combine(_type, AsBinary().Length),
+        _ => HashCode.Combine(_type, _intValue),
+    };
 
     public override string ToString() => _type switch
     {
-        OmxDataType.Utf8String => _stringValue ?? "",
+        OmxDataType.Utf8String => AsString(),
         OmxDataType.Float32 => ((float)_floatValue).ToString("G"),
         OmxDataType.Float64 => _floatValue.ToString("G"),
         OmxDataType.Bool => _intValue != 0 ? "true" : "false",
         OmxDataType.Timestamp => new OmxTimestamp(_intValue).ToString(),
+        OmxDataType.Binary => $"byte[{AsBinary().Length}]",
         _ => _intValue.ToString(),
     };
 }

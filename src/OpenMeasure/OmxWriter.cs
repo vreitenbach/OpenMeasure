@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Runtime.InteropServices;
+using OpenMeasure.Bus;
 using OpenMeasure.Format;
 
 namespace OpenMeasure;
@@ -11,6 +12,7 @@ public sealed class OmxWriter : IDisposable
 {
     private readonly FileStream _stream;
     private readonly List<GroupWriter> _groups = [];
+    private readonly List<BusGroupWriter> _busGroups = [];
     private readonly Dictionary<string, OmxValue> _fileProperties = [];
     private FileHeader _header;
     private bool _metadataWritten;
@@ -37,6 +39,17 @@ public sealed class OmxWriter : IDisposable
         var group = new GroupWriter(name, _groups.Count, this);
         _groups.Add(group);
         return group;
+    }
+
+    /// <summary>
+    /// Add a bus data group with structured frame/signal definitions.
+    /// </summary>
+    public BusGroupWriter AddBusGroup(string name, BusConfig busConfig)
+    {
+        var group = AddGroup(name);
+        var busGroup = new BusGroupWriter(group, busConfig);
+        _busGroups.Add(busGroup);
+        return busGroup;
     }
 
     /// <summary>
@@ -87,6 +100,14 @@ public sealed class OmxWriter : IDisposable
     {
         if (_metadataWritten) return;
         _metadataWritten = true;
+
+        // Serialize bus definitions into group properties before writing metadata
+        foreach (var busGroup in _busGroups)
+        {
+            var encoded = BusMetadataEncoder.Encode(busGroup.BusDefinition);
+            busGroup.Group.Properties["omx.bus_def"] = encoded;
+        }
+
         WriteMetadataSegment();
     }
 
@@ -221,6 +242,8 @@ public sealed class GroupWriter
 
     /// <summary>
     /// Add a signal channel that is decoded from a raw source channel.
+    /// </summary>
+    [Obsolete("Use OmxWriter.AddBusGroup() with structured frame/signal definitions instead.")]
     /// The source relationship is stored as a property for traceability.
     /// </summary>
     public ChannelWriter<T> AddSignalChannel<T>(string name, string sourceChannelName,

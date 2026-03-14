@@ -1,4 +1,5 @@
 using OpenMeasure;
+using OpenMeasure.Bus;
 
 // === WRITE: Motor test bench measurement ===
 Console.WriteLine("=== Writing measurement data ===");
@@ -28,41 +29,66 @@ using (var writer = OmxFile.CreateWriter("demo_measurement.omx"))
         temp.Write(92.0 + Math.Sin(i * 0.005) * 3.0);
     }
 
-    // Group 2: CAN bus raw data with decoded signal
-    var canGroup = writer.AddGroup("CAN_Powertrain");
-    canGroup.Properties["BusType"] = "CAN 2.0B";
-    canGroup.Properties["Baudrate"] = 500000;
+    // Group 2: CAN bus with structured frame/signal definitions
+    var can = writer.AddBusGroup("CAN_Powertrain", new CanBusConfig { BaudRate = 500_000 });
 
-    var canTime = canGroup.AddChannel<OmxTimestamp>("Timestamp");
-    var rawFrames = canGroup.AddRawChannel("RawFrames");
-
-    // Decoded signal linked to raw data
-    var canRpm = canGroup.AddSignalChannel<float>(
-        name: "EngineRPM",
-        sourceChannelName: "RawFrames",
-        startBit: 0, bitLength: 16,
-        factor: 0.25, offset: 0.0);
-    canRpm.Properties["Unit"] = "1/min";
-    canRpm.Properties["CanId"] = 0x100;
-
-    for (int i = 0; i < 100; i++)
+    // Frame definitions with signals — IDs belong to frames, not signals
+    var engineFrame = can.DefineCanFrame("EngineData", frameId: 0x100, payloadLength: 8);
+    engineFrame.Signals.Add(new SignalDefinition
     {
-        canTime.Write(startTime + TimeSpan.FromMilliseconds(i * 10));
+        Name = "EngineRPM",
+        StartBit = 0,
+        BitLength = 16,
+        Factor = 0.25,
+        Unit = "rpm",
+    });
+    engineFrame.Signals.Add(new SignalDefinition
+    {
+        Name = "EngineTemp",
+        StartBit = 16,
+        BitLength = 8,
+        Factor = 1.0,
+        Offset = -40,
+        Unit = "degC",
+    });
 
-        // Raw CAN frame: [ID_lo, ID_hi, DLC, data...]
-        ushort rpmRaw = (ushort)((3000 + i * 10) * 4); // 0.25 factor
-        rawFrames.WriteFrame(new byte[]
+    can.DefineCanFrame("TransmissionData", frameId: 0x200, payloadLength: 8)
+        .Signals.Add(new SignalDefinition
         {
-            0x00, 0x01, 8,
-            (byte)(rpmRaw & 0xFF), (byte)(rpmRaw >> 8),
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            Name = "GearPosition",
+            StartBit = 0,
+            BitLength = 4,
+            ValueDescriptions = new()
+            {
+                [0] = "Park", [1] = "Reverse", [2] = "Neutral",
+                [3] = "Drive", [4] = "Sport",
+            },
         });
 
-        canRpm.Write(rpmRaw * 0.25f);
+    // Write CAN frames with standardized wire format
+    for (int i = 0; i < 100; i++)
+    {
+        var ts = startTime + TimeSpan.FromMilliseconds(i * 10);
+        ushort rpmRaw = (ushort)((3000 + i * 10) / 0.25);
+        can.WriteFrame(ts, 0x100, new byte[]
+        {
+            (byte)(rpmRaw & 0xFF), (byte)(rpmRaw >> 8),
+            130, // Temp: 130-40=90°C
+            0x00, 0x00, 0x00, 0x00, 0x00,
+        });
+
+        if (i % 5 == 0)
+        {
+            can.WriteFrame(ts, 0x200, new byte[]
+            {
+                0x03, // Gear = Drive
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            });
+        }
     }
 
     Console.WriteLine("  Written: Motor group (1000 samples @ 1kHz)");
-    Console.WriteLine("  Written: CAN group (100 frames with decoded RPM signal)");
+    Console.WriteLine("  Written: CAN group (100+ frames with structured signal definitions)");
 }
 
 // === READ: Open and inspect the file ===
@@ -76,29 +102,49 @@ using (var reader = OmxFile.OpenRead("demo_measurement.omx"))
     foreach (var group in reader.Groups)
     {
         Console.WriteLine($"\n  Group: {group.Name}");
-        foreach (var (key, value) in group.Properties)
-            Console.WriteLine($"    {key} = {value}");
 
-        foreach (var channel in group.Channels)
+        if (group.BusDefinition != null)
         {
-            Console.Write($"    Channel: {channel.Name} [{channel.DataType}]");
-            Console.Write($" ({channel.SampleCount} samples)");
-            if (channel.SourceChannelName != null)
-                Console.Write($" ← decoded from '{channel.SourceChannelName}'");
-            Console.WriteLine();
+            var busCfg = group.BusDefinition.BusConfig;
+            Console.WriteLine($"    Bus Type: {busCfg.BusType}");
+            if (busCfg is CanBusConfig canCfg)
+                Console.WriteLine($"    Baud Rate: {canCfg.BaudRate}");
+
+            foreach (var frame in group.BusDefinition.Frames)
+            {
+                Console.WriteLine($"    Frame: {frame.Name} (ID=0x{frame.FrameId:X})");
+                foreach (var sig in frame.Signals)
+                    Console.WriteLine($"      Signal: {sig.Name} [{sig.StartBit}:{sig.BitLength}] " +
+                        $"factor={sig.Factor} offset={sig.Offset} unit={sig.Unit}");
+            }
+
+            // Decode signals directly from raw frames
+            Console.WriteLine("\n    Decoded signals from raw frames:");
+            var rpmValues = group.DecodeSignal("EngineRPM");
+            Console.WriteLine($"      EngineRPM: {rpmValues.Length} values, " +
+                $"first={rpmValues[0]:F1}, last={rpmValues[^1]:F1}");
+
+            var gearValues = group.DecodeSignal("GearPosition");
+            Console.WriteLine($"      GearPosition: {gearValues.Length} values, " +
+                $"mode={gearValues[0]:F0} " +
+                $"({group.BusDefinition.FindSignal("GearPosition")?.Signal.ValueDescriptions?[(long)gearValues[0]]})");
+        }
+        else
+        {
+            foreach (var (key, value) in group.Properties)
+                Console.WriteLine($"    {key} = {value}");
+
+            foreach (var channel in group.Channels)
+                Console.WriteLine($"    Channel: {channel.Name} [{channel.DataType}] ({channel.SampleCount} samples)");
         }
     }
 
-    // Read and display some values
+    // Read analog data
     var rpmData = reader["Motor"]["RPM"].ReadAll<float>();
     var timeData = reader["Motor"]["Time"].ReadAll<OmxTimestamp>();
     Console.WriteLine($"\n  Motor RPM: first={rpmData[0]:F1}, last={rpmData[^1]:F1}");
     Console.WriteLine($"  Time range: {timeData[0]} → {timeData[^1]}");
     Console.WriteLine($"  Duration: {(timeData[^1] - timeData[0]).TotalMilliseconds:F1} ms");
-
-    // CAN decoded signal
-    var canRpmData = reader["CAN_Powertrain"]["EngineRPM"].ReadAll<float>();
-    Console.WriteLine($"\n  CAN RPM signal: first={canRpmData[0]:F1}, last={canRpmData[^1]:F1}");
 
     var fileSize = new FileInfo("demo_measurement.omx").Length;
     Console.WriteLine($"\n  File size: {fileSize:N0} bytes ({fileSize / 1024.0:F1} KB)");

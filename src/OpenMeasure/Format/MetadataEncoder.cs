@@ -106,6 +106,11 @@ internal static class MetadataEncoder
                 case OmxDataType.Bool:
                     bw.Write(value.AsBool());
                     break;
+                case OmxDataType.Binary:
+                    var bin = value.AsBinary();
+                    bw.Write(bin.Length);
+                    bw.Write(bin);
+                    break;
                 default:
                     bw.Write(value.AsInt64());
                     break;
@@ -146,6 +151,7 @@ internal static class MetadataEncoder
                 OmxDataType.Float64 => ReadFloat64(data, ref offset),
                 OmxDataType.Utf8String => ReadString(data, ref offset),
                 OmxDataType.Bool => data[offset++] != 0,
+                OmxDataType.Binary => ReadBinary(data, ref offset),
                 _ => ReadInt64(data, ref offset),
             };
             props[key] = value;
@@ -173,6 +179,14 @@ internal static class MetadataEncoder
         double value = BinaryPrimitives.ReadDoubleLittleEndian(data[offset..]);
         offset += 8;
         return value;
+    }
+
+    private static byte[] ReadBinary(ReadOnlySpan<byte> data, ref int offset)
+    {
+        int len = ReadInt32(data, ref offset);
+        var bytes = data.Slice(offset, len).ToArray();
+        offset += len;
+        return bytes;
     }
 }
 

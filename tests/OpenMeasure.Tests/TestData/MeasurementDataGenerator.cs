@@ -1,3 +1,5 @@
+using OpenMeasure.Bus;
+
 namespace OpenMeasure.Tests.TestData;
 
 /// <summary>
@@ -23,7 +25,7 @@ public static class MeasurementDataGenerator
     }
 
     /// <summary>
-    /// Simulates RPM signal: idle → ramp up → hold → ramp down.
+    /// Simulates RPM signal: idle -> ramp up -> hold -> ramp down.
     /// </summary>
     public static float[] GenerateRpmProfile(int sampleCount, float idleRpm = 800f, float maxRpm = 6500f)
     {
@@ -41,7 +43,7 @@ public static class MeasurementDataGenerator
                 < 0.9f => maxRpm - (maxRpm - idleRpm) * ((t - 0.7f) / 0.2f),
                 _ => idleRpm,
             };
-            rpm[i] = baseRpm + (float)(rng.NextDouble() * 20 - 10); // ±10 RPM noise
+            rpm[i] = baseRpm + (float)(rng.NextDouble() * 20 - 10);
         }
 
         return rpm;
@@ -59,8 +61,8 @@ public static class MeasurementDataGenerator
         for (int i = 0; i < rpm.Length; i++)
         {
             double targetTemp = ambientTemp + (rpm[i] - 800) / 6500.0 * 70.0;
-            currentTemp += (targetTemp - currentTemp) * 0.001; // thermal inertia
-            temp[i] = currentTemp + rng.NextDouble() * 0.5 - 0.25; // ±0.25°C noise
+            currentTemp += (targetTemp - currentTemp) * 0.001;
+            temp[i] = currentTemp + rng.NextDouble() * 0.5 - 0.25;
         }
 
         return temp;
@@ -76,73 +78,72 @@ public static class MeasurementDataGenerator
 
         for (int i = 0; i < sampleCount; i++)
         {
-            float t = i * 0.001f; // 1kHz assumed
-            data[i] = amplitude * MathF.Sin(2 * MathF.PI * 120 * t)   // 120 Hz base
-                     + amplitude * 0.3f * MathF.Sin(2 * MathF.PI * 360 * t) // 3rd harmonic
-                     + (float)(rng.NextDouble() * 0.5 - 0.25); // noise
+            float t = i * 0.001f;
+            data[i] = amplitude * MathF.Sin(2 * MathF.PI * 120 * t)
+                     + amplitude * 0.3f * MathF.Sin(2 * MathF.PI * 360 * t)
+                     + (float)(rng.NextDouble() * 0.5 - 0.25);
         }
 
         return data;
     }
 
     /// <summary>
-    /// Generates simulated CAN frames (8 bytes each, typical CAN 2.0).
-    /// Each frame = [2 bytes CAN-ID] [1 byte DLC] [up to 8 bytes data].
+    /// Writes CAN bus test data using the BusGroupWriter API.
+    /// Generates frames for multiple CAN IDs with an embedded RPM signal.
     /// </summary>
-    public static (byte[][] frames, OmxTimestamp[] timestamps) GenerateCanFrames(
+    public static void WriteCanBusData(OmxWriter writer, string groupName,
         DateTimeOffset start, int frameCount, double frameRateHz = 1000)
     {
-        var frames = new byte[frameCount][];
-        var timestamps = new OmxTimestamp[frameCount];
+        var can = writer.AddBusGroup(groupName, new CanBusConfig { BaudRate = 500_000 });
+
+        // Define frames with signal definitions on the FRAME, not on channels
+        var engineFrame = can.DefineCanFrame("EngineData", 0x100, 8);
+        engineFrame.Signals.Add(new SignalDefinition
+        {
+            Name = "EngineRPM",
+            StartBit = 0,
+            BitLength = 16,
+            Factor = 0.25,
+            Unit = "rpm",
+        });
+        engineFrame.Signals.Add(new SignalDefinition
+        {
+            Name = "EngineTemp",
+            StartBit = 16,
+            BitLength = 8,
+            Factor = 1.0,
+            Offset = -40,
+            Unit = "degC",
+        });
+
+        can.DefineCanFrame("BrakeData", 0x200, 8);
+        can.DefineCanFrame("SteeringAngle", 0x301, 8);
+        can.DefineCanFrame("TransmissionData", 0x400, 8);
+        can.DefineCanFrame("DiagRequest", 0x7DF, 8);
+
+        uint[] canIds = [0x100, 0x200, 0x301, 0x400, 0x7DF];
         var rng = new Random(99);
         long intervalNanos = (long)(1_000_000_000.0 / frameRateHz);
         long startNanos = OmxTimestamp.FromDateTimeOffset(start).Nanoseconds;
 
-        // Typical CAN message IDs
-        ushort[] canIds = [0x100, 0x200, 0x301, 0x400, 0x7DF];
-
         for (int i = 0; i < frameCount; i++)
         {
-            timestamps[i] = new OmxTimestamp(startNanos + i * intervalNanos);
+            var ts = new OmxTimestamp(startNanos + i * intervalNanos);
+            uint canId = canIds[i % canIds.Length];
 
-            ushort canId = canIds[i % canIds.Length];
-            byte dlc = 8;
-            var frame = new byte[2 + 1 + dlc]; // ID + DLC + Data
-            frame[0] = (byte)(canId & 0xFF);
-            frame[1] = (byte)(canId >> 8);
-            frame[2] = dlc;
-            rng.NextBytes(frame.AsSpan(3));
+            var payload = new byte[8];
+            rng.NextBytes(payload);
 
-            // Embed a realistic engine RPM signal in CAN ID 0x100
             if (canId == 0x100)
             {
                 float rpm = 800 + (float)i / frameCount * 5700;
-                ushort rpmRaw = (ushort)(rpm * 4); // typical scaling: 0.25 RPM/bit
-                frame[3] = (byte)(rpmRaw & 0xFF);
-                frame[4] = (byte)(rpmRaw >> 8);
+                ushort rpmRaw = (ushort)(rpm / 0.25);
+                payload[0] = (byte)(rpmRaw & 0xFF);
+                payload[1] = (byte)(rpmRaw >> 8);
+                payload[2] = 130; // 90 degC
             }
 
-            frames[i] = frame;
+            can.WriteFrame(ts, canId, payload);
         }
-
-        return (frames, timestamps);
-    }
-
-    /// <summary>
-    /// Decodes RPM signal from generated CAN frames (CAN ID 0x100, bytes 3-4, factor 0.25).
-    /// </summary>
-    public static float[] DecodeRpmFromCanFrames(byte[][] frames)
-    {
-        var rpmValues = new List<float>();
-        foreach (var frame in frames)
-        {
-            ushort canId = (ushort)(frame[0] | (frame[1] << 8));
-            if (canId == 0x100)
-            {
-                ushort raw = (ushort)(frame[3] | (frame[4] << 8));
-                rpmValues.Add(raw * 0.25f);
-            }
-        }
-        return rpmValues.ToArray();
     }
 }
