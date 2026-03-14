@@ -8,4 +8,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/OpenMeasure.Tests/OpenMeasure.Tests.csproj" />
   </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/OpenMeasure.Benchmarks/OpenMeasure.Benchmarks.csproj" />
+  </Folder>
 </Solution>
