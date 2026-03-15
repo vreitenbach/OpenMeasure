@@ -1,0 +1,10 @@
+{
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/vreitenbach/vcpkg-registry",
+      "baseline": "HEAD",
+      "packages": ["measflow"]
+    }
+  ]
+}
