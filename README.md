@@ -29,11 +29,7 @@ dotnet add package MeasFlow
 # Python
 pip install measflow
 
-# C (via vcpkg custom registry — add vcpkg-configuration.json first)
-# See c/vcpkg-configuration.json or add to your project:
-#   { "registries": [{ "kind": "git",
-#       "repository": "https://github.com/vreitenbach/vcpkg-registry",
-#       "baseline": "HEAD", "packages": ["measflow"] }] }
+# C (vcpkg custom registry — requires vcpkg-configuration.json in your project)
 vcpkg install measflow
 ```
 
@@ -63,6 +59,22 @@ python quickstart/quickstart.py
 ```
 
 ### C Quick Start
+
+To use measflow via vcpkg, add a `vcpkg-configuration.json` to your project:
+
+```json
+{
+  "default-registry": null,
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/vreitenbach/vcpkg-registry",
+      "baseline": "d6473e3037973c8a5d465ef3fc1955b8e4f58557",
+      "packages": ["measflow"]
+    }
+  ]
+}
+```
 
 ```sh
 cd c
