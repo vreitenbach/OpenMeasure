@@ -2,9 +2,9 @@
 
 > **⚠️ Prototype:** This project is in prototype stage. The API, file format, and feature set may still change significantly. Not intended for production use.
 
-Open, high-performance measurement data format for .NET. Simple like TDMS, powerful like MDF4.
+Open, high-performance measurement data format with multi-language support. Simple like TDMS, powerful like MDF4.
 
-**MIT License** | **.NET 10** | **Zero dependencies**
+**MIT License** | **Zero dependencies**
 
 ## Why?
 
@@ -15,55 +15,38 @@ Existing formats have limitations:
 
 MeasFlow provides a clean, open alternative with first-class support for automotive bus data (CAN, CAN-FD, LIN, FlexRay, Ethernet) and AUTOSAR concepts (PDU, Container-PDU, Multiplexing, E2E, SecOC).
 
-## Quick Start
+## Language Bindings
 
-```csharp
-using MeasFlow;
-using MeasFlow.Bus;
+| Language | Directory | Quick Start |
+|----------|-----------|-------------|
+| **C#** (.NET 10) | [`csharp/`](csharp/) | [`csharp/samples/QuickStart/`](csharp/samples/QuickStart/) |
+| **Python** (≥ 3.10) | [`python/`](python/) | [`python/quickstart/quickstart.py`](python/quickstart/quickstart.py) |
+| **C** (C99) | [`c/`](c/) | [`c/quickstart/quickstart.c`](c/quickstart/quickstart.c) |
 
-// Write measurement data
-using var writer = MeasFile.CreateWriter("test.meas");
+Each binding is self-contained with its own README, tests, and a runnable quickstart.
 
-// Analog sensors
-var motor = writer.AddGroup("Motor");
-var rpm = motor.AddChannel<float>("RPM");
-rpm.Properties["Unit"] = "1/min";
-rpm.Write(3000.0f);
-rpm.Write(3500.0f);
+### C# Quick Start
 
-// CAN bus with structured frame/signal definitions
-var can = writer.AddBusGroup("CAN1", new CanBusConfig { BaudRate = 500_000 });
-
-var engineFrame = can.DefineCanFrame("EngineData", frameId: 0x100, payloadLength: 8);
-engineFrame.Signals.Add(new SignalDefinition
-{
-    Name = "EngineRPM",
-    StartBit = 0,
-    BitLength = 16,
-    Factor = 0.25,
-    Unit = "rpm",
-});
-
-var ts = MeasTimestamp.Now;
-can.WriteFrame(ts, 0x100, new byte[] { 0xE0, 0x2E, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00 });
+```sh
+cd csharp/samples/QuickStart
+dotnet run
 ```
 
-```csharp
-// Read and decode
-using var reader = MeasFile.OpenRead("test.meas");
+### Python Quick Start
 
-// Instant statistics without reading data
-var stats = reader["Motor"]["RPM"].Statistics;
-Console.WriteLine($"RPM: min={stats?.Min} max={stats?.Max} mean={stats?.Mean}");
+```sh
+cd python
+pip install -e .
+python quickstart/quickstart.py
+```
 
-// Decode signals directly from raw CAN frames
-var rpmValues = reader["CAN1"].DecodeSignal("EngineRPM");
-Console.WriteLine($"Decoded {rpmValues.Length} RPM values");
+### C Quick Start
 
-// Bus definition preserved
-var busDef = reader["CAN1"].BusDefinition!;
-var frame = busDef.FindFrame(0x100)!;
-Console.WriteLine($"Frame: {frame.Name}, Signals: {frame.Signals.Count}");
+```sh
+cd c
+cmake -B build -DMEAS_BUILD_QUICKSTART=ON
+cmake --build build
+./build/quickstart
 ```
 
 ## Features
@@ -181,10 +164,10 @@ Raw frame wire format per bus type:
 | FlexRay | `[uint16 slotId] [byte cycle] [byte flags] [uint16 len] [payload]` |
 | Ethernet | `[6B macDst] [6B macSrc] [uint16 etherType] [uint16 vlan] [uint16 len] [payload]` |
 
-## Benchmarks
+## Benchmarks (C#)
 
 ```bash
-cd benchmarks/MeasFlow.Benchmarks
+cd csharp/benchmarks/MeasFlow.Benchmarks
 dotnet run -c Release -- --filter "*Write*"    # Write benchmarks
 dotnet run -c Release -- --filter "*Read*"     # Read benchmarks
 dotnet run -c Release -- --filter "*Size*"     # File size comparison
@@ -194,19 +177,28 @@ dotnet run -c Release                          # All benchmarks
 ## Project Structure
 
 ```
-src/MeasFlow/           Core library
-  Bus/                     Bus data model (CAN, LIN, FlexRay, Ethernet, MOST)
-  Format/                  Binary serialization (MetadataEncoder, BusMetadataEncoder)
-tests/MeasFlow.Tests/   40+ tests (roundtrip, bus model, multiplexing, SecOC)
-samples/QuickStart/        Runnable example
-benchmarks/                BenchmarkDotNet performance tests
+csharp/                       C# (.NET 10) implementation
+  src/MeasFlow/                 Core library
+    Bus/                          Bus data model (CAN, LIN, FlexRay, Ethernet, MOST)
+    Format/                       Binary serialization
+  tests/MeasFlow.Tests/         40+ tests (roundtrip, bus model, multiplexing, SecOC)
+  samples/QuickStart/           Runnable C# quickstart
+  benchmarks/                   BenchmarkDotNet performance tests
+  tools/MeasFlow.Viewer/        Avalonia-based data viewer
+python/                       Python (≥ 3.10) implementation
+  measflow/                     Package source
+  tests/                        Pytest test suite
+  quickstart/quickstart.py      Runnable Python quickstart
+c/                            C (C99) implementation
+  measflow.c / measflow.h       Single-file library
+  tests/                        C unit tests
+  quickstart/quickstart.c       Runnable C quickstart
 ```
 
 ## Roadmap
 
 - [ ] Performance benchmarks vs TDMS/HDF5/MDF4
 - [ ] Data viewer (signal plots, frame browser)
-- [ ] Python implementation (`MEAS-python`)
 - [ ] MATLAB integration
 - [ ] Excel plugin
 - [ ] Compression (LZ4/Zstd)

@@ -15,6 +15,20 @@ else()
     target_compile_options(measflow PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# ── Quickstart ───────────────────────────────────────────────────────────────
+
+option(MEAS_BUILD_QUICKSTART "Build quickstart example" OFF)
+
+if(MEAS_BUILD_QUICKSTART)
+    add_executable(quickstart quickstart/quickstart.c)
+    target_link_libraries(quickstart PRIVATE measflow m)
+    if(MSVC)
+        target_compile_options(quickstart PRIVATE /W4)
+    else()
+        target_compile_options(quickstart PRIVATE -Wall -Wextra)
+    endif()
+endif()
+
 # ── Tests ────────────────────────────────────────────────────────────────────
 
 option(MEAS_BUILD_TESTS "Build C unit tests" ON)
