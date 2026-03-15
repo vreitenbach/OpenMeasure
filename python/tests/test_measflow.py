@@ -341,6 +341,7 @@ def test_ethernet_frame_roundtrip():
 
 # ── Interoperability ─────────────────────────────────────────────────────────
 
+@pytest.mark.skipif(not DEMO_FILE.exists(), reason="demo_measurement.meas not found")
 def test_read_csharp_demo_file():
     """Read the C#-generated demo file and verify basic structure."""
     with MeasReader(str(DEMO_FILE)) as r:
@@ -356,6 +357,7 @@ def test_read_csharp_demo_file():
         assert rpm.max() < 4000
 
 
+@pytest.mark.skipif(not DEMO_FILE.exists(), reason="demo_measurement.meas not found")
 def test_read_csharp_demo_file_statistics():
     """Statistics written by the C# writer are readable by the Python reader."""
     from measflow import ChannelStatistics

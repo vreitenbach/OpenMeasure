@@ -1114,10 +1114,18 @@ static void test_cross_language_read(void) {
     /* Try to open the demo measurement file written by the C# implementation.
        This is an integration test that verifies cross-language compatibility.
        Skip gracefully if the file is not present. */
-    const char *demo = "../../demo_measurement.meas";
-    MeasReader *r = meas_reader_open(demo);
+    const char *paths[] = {
+        "demo_measurement.meas",           /* CWD = repo root (CI) */
+        "../../demo_measurement.meas",     /* CWD = c/build (local) */
+        "../demo_measurement.meas",        /* CWD = c/ */
+    };
+    MeasReader *r = NULL;
+    for (int i = 0; i < 3; i++) {
+        r = meas_reader_open(paths[i]);
+        if (r) break;
+    }
     if (!r) {
-        printf("  [SKIP] demo_measurement.meas not found at %s\n", demo);
+        printf("  [SKIP] demo_measurement.meas not found\n");
         g_passed++;  /* count as passed since it's an optional test */
         return;
     }
