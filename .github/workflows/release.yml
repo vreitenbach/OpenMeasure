@@ -41,28 +41,66 @@ jobs:
           packages-dir: python/dist/
 
   vcpkg:
-    name: Update vcpkg port
+    name: Update vcpkg registry
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Compute source archive SHA512
-        id: sha
+      - name: Compute source archive SHA512 and version
+        id: meta
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARCHIVE_URL="https://github.com/${{ github.repository }}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
           SHA512=$(curl -sL "$ARCHIVE_URL" | sha512sum | cut -d' ' -f1)
           echo "sha512=$SHA512" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Patch port files with SHA512 and version
+      - name: Clone vcpkg registry
         run: |
-          sed -i "s/SHA512 0.*/SHA512 ${{ steps.sha.outputs.sha512 }}/" c/port/portfile.cmake
-          sed -i 's/"version": ".*"/"version": "${{ steps.sha.outputs.version }}"/' c/port/vcpkg.json
-      - name: Upload port as release artifact
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            c/port/portfile.cmake
-            c/port/vcpkg.json
+          git clone https://x-access-token:${{ secrets.VCPKG_REGISTRY_TOKEN }}@github.com/vreitenbach/vcpkg-registry.git registry
+      - name: Update port files
+        run: |
+          cp c/port/portfile.cmake registry/ports/measflow/portfile.cmake
+          cp c/port/vcpkg.json registry/ports/measflow/vcpkg.json
+          sed -i "s/SHA512 0.*/SHA512 ${{ steps.meta.outputs.sha512 }}/" registry/ports/measflow/portfile.cmake
+          sed -i 's/"version": ".*"/"version": "${{ steps.meta.outputs.version }}"/' registry/ports/measflow/vcpkg.json
+      - name: Update version database
+        run: |
+          cd registry
+          git add ports/measflow/
+          TREE=$(git write-tree --prefix=ports/measflow/)
+          VERSION="${{ steps.meta.outputs.version }}"
+
+          # Update versions/m-/measflow.json — prepend new version entry
+          python3 -c "
+          import json, sys
+          with open('versions/m-/measflow.json') as f:
+              data = json.load(f)
+          entry = {'version': '$VERSION', 'port-version': 0, 'git-tree': '$TREE'}
+          # Remove existing entry for same version if present
+          data['versions'] = [v for v in data['versions'] if v['version'] != '$VERSION']
+          data['versions'].insert(0, entry)
+          with open('versions/m-/measflow.json', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          "
+
+          # Update baseline
+          python3 -c "
+          import json
+          with open('versions/baseline.json') as f:
+              data = json.load(f)
+          data['default']['measflow'] = {'baseline': '$VERSION', 'port-version': 0}
+          with open('versions/baseline.json', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+          "
+      - name: Commit and push to registry
+        run: |
+          cd registry
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Update measflow to ${{ steps.meta.outputs.version }}"
+          git push
 
   github-release:
     name: GitHub Release

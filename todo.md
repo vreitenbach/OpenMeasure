@@ -31,7 +31,7 @@
 ## CI/CD
 
 - [x] CI workflow (C#, Python, C — Linux + Windows matrix)
-- [x] Release workflow (NuGet, PyPI, GitHub Release on tag push)
+- [x] Release workflow (NuGet, PyPI, vcpkg registry, GitHub Release on tag push)
 
 ## Publishing
 
@@ -41,5 +41,5 @@
 - [x] Third-party license notices (THIRD-PARTY-NOTICES.md)
 - [ ] NuGet publish to nuget.org
 - [ ] PyPI publish to pypi.org
-- [ ] Vcpkg registry submission
+- [x] Vcpkg custom registry (vreitenbach/vcpkg-registry, auto-updated on release)
 
