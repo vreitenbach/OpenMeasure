@@ -201,11 +201,11 @@ c/                            C (C99) implementation
 - [ ] Rust reader/writer
 - [ ] Memory-mapped I/O for large files
 - [ ] Performance comparison vs TDMS/HDF5/MDF4
-- [ ] DBC/ARXML import
 - [ ] MATLAB integration
 - [ ] Excel plugin
 - [ ] NuGet publish to nuget.org
 - [ ] PyPI publish to pypi.org
+- [ ] DBC/ARXML import
 
 ## License
 
