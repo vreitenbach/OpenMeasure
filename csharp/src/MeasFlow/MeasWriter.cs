@@ -169,10 +169,57 @@ public sealed class MeasWriter : IDisposable
 
     private void WriteDataSegment(List<(int globalIndex, ChannelWriter channel)> chunks)
     {
-        // First, serialize all chunk data to a temp buffer to know total size
+        bool compressed = Compression != MeasCompression.None;
+
+        if (compressed)
+        {
+            // Compression requires knowing full content → buffer first
+            WriteDataSegmentBuffered(chunks);
+            return;
+        }
+
+        // Fast path: write directly to file stream (no intermediate buffer)
+        var segHeader = new SegmentHeader
+        {
+            Type = SegmentType.Data,
+            Flags = 0,
+            ContentLength = 0, // patched after writing
+            NextSegmentOffset = 0,
+            ChunkCount = chunks.Count,
+            Crc32 = 0,
+        };
+
+        long segStartOffset = _stream.Position;
+        Span<byte> segBuf = stackalloc byte[SegmentHeader.Size];
+        segHeader.WriteTo(segBuf);
+        _stream.Write(segBuf); // placeholder header
+
+        // Write chunk count + channel data directly to file
+        Span<byte> intBuf = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(intBuf, chunks.Count);
+        _stream.Write(intBuf);
+
+        foreach (var (globalIndex, channel) in chunks)
+        {
+            channel.FlushToStream(_stream, globalIndex);
+        }
+
+        // Patch header with actual content length and next offset
+        long nextOffset = _stream.Position;
+        segHeader.ContentLength = nextOffset - segStartOffset - SegmentHeader.Size;
+        segHeader.NextSegmentOffset = nextOffset;
+        segHeader.WriteTo(segBuf);
+        _stream.Seek(segStartOffset, SeekOrigin.Begin);
+        _stream.Write(segBuf);
+        _stream.Seek(nextOffset, SeekOrigin.Begin);
+
+        _segmentCount++;
+    }
+
+    private void WriteDataSegmentBuffered(List<(int globalIndex, ChannelWriter channel)> chunks)
+    {
         using var dataBuffer = new MemoryStream();
 
-        // Write chunk count
         Span<byte> intBuf = stackalloc byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(intBuf, chunks.Count);
         dataBuffer.Write(intBuf);
@@ -182,16 +229,16 @@ public sealed class MeasWriter : IDisposable
             channel.FlushToStream(dataBuffer, globalIndex);
         }
 
-        // Compress if requested
-        byte[] rawData = dataBuffer.ToArray();
-        byte[] contentData = SegmentCompressor.Compress(rawData, Compression);
+        // Use GetBuffer() to avoid ToArray() copy when possible
+        byte[] contentData = SegmentCompressor.Compress(
+            dataBuffer.GetBuffer().AsSpan(0, (int)dataBuffer.Length), Compression);
 
         var segHeader = new SegmentHeader
         {
             Type = SegmentType.Data,
             Flags = SegmentCompressor.ToFlags(Compression),
             ContentLength = contentData.Length,
-            NextSegmentOffset = 0, // patched below
+            NextSegmentOffset = 0,
             ChunkCount = chunks.Count,
             Crc32 = 0,
         };
@@ -200,10 +247,8 @@ public sealed class MeasWriter : IDisposable
         Span<byte> segBuf = stackalloc byte[SegmentHeader.Size];
         segHeader.WriteTo(segBuf);
         _stream.Write(segBuf);
-
         _stream.Write(contentData);
 
-        // Patch next offset
         long nextOffset = _stream.Position;
         segHeader.NextSegmentOffset = nextOffset;
         segHeader.WriteTo(segBuf);
@@ -317,10 +362,27 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
 
     public void Write(ReadOnlySpan<T> values)
     {
-        foreach (var v in values)
+        if (values.IsEmpty) return;
+
+        // Pre-allocate to avoid repeated List<T> growth copies
+        int needed = _buffer.Count + values.Length;
+        if (_buffer.Capacity < needed)
+            _buffer.Capacity = needed;
+
+        if (_trackStats)
         {
-            _buffer.Add(v);
-            if (_trackStats) _stats.Update(NumericConverter.ToDouble(v));
+            foreach (var v in values)
+            {
+                _buffer.Add(v);
+                _stats.Update(NumericConverter.ToDouble(v));
+            }
+        }
+        else
+        {
+            // Fast path: bulk copy via CollectionsMarshal (no per-element overhead)
+            int startCount = _buffer.Count;
+            CollectionsMarshal.SetCount(_buffer, needed);
+            values.CopyTo(CollectionsMarshal.AsSpan(_buffer).Slice(startCount));
         }
     }
 
