@@ -1,5 +1,6 @@
 ﻿using System.Buffers.Binary;
 using MeasFlow.Format;
+using static MeasFlow.Format.SegmentCompressor;
 
 namespace MeasFlow;
 
@@ -76,6 +77,11 @@ public sealed class MeasReader : IDisposable
 
             var content = new byte[segHeader.ContentLength];
             _stream.ReadExactly(content);
+
+            // Decompress if segment is compressed
+            var compression = FromFlags(segHeader.Flags);
+            if (compression != MeasCompression.None)
+                content = Decompress(content, compression);
 
             switch (segHeader.Type)
             {

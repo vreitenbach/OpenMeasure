@@ -18,6 +18,13 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef MEAS_HAVE_LZ4
+#  include <lz4.h>
+#endif
+#ifdef MEAS_HAVE_ZSTD
+#  include <zstd.h>
+#endif
+
 /* ── Portability / endian helpers ────────────────────────────────────────── */
 
 #if defined(_WIN32)
@@ -312,11 +319,12 @@ static void encode_file_header(uint8_t buf[64], int64_t created_at_ns,
 }
 
 /* Write a 32-byte segment header into a buffer. */
-static void encode_seg_header(uint8_t buf[32], int32_t type, int64_t content_len,
-                               int64_t next_seg_offset, int32_t chunk_count) {
+static void encode_seg_header(uint8_t buf[32], int32_t type, int32_t flags,
+                               int64_t content_len, int64_t next_seg_offset,
+                               int32_t chunk_count) {
     memset(buf, 0, 32);
     write_le32(buf +  0, (uint32_t)type);
-    write_le32(buf +  4, 0);                          /* flags */
+    write_le32(buf +  4, (uint32_t)flags);
     write_le64(buf +  8, (uint64_t)content_len);
     write_le64(buf + 16, (uint64_t)next_seg_offset);
     write_le32(buf + 24, (uint32_t)chunk_count);
@@ -389,6 +397,7 @@ struct MeasWriter {
     int64_t            metadata_content_offset; /* file offset of metadata content */
     int64_t            created_at_ns;
     uint8_t            file_id[16];
+    MeasCompression    compression;
 };
 
 /* Generate a simple pseudo-random UUID (RFC 4122 v4) without platform deps */
@@ -497,13 +506,14 @@ static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats) {
    Patches NextSegmentOffset in the header.
    Increments w->segment_count.
    Returns 0 on error. */
-static int write_segment(MeasWriter *w, int32_t type, const uint8_t *content,
-                          size_t content_len, int32_t chunk_count) {
+static int write_segment(MeasWriter *w, int32_t type, int32_t flags,
+                          const uint8_t *content, size_t content_len,
+                          int32_t chunk_count) {
     long seg_start = ftell(w->file);
     if (seg_start < 0) return 0;
 
     uint8_t hdr[32];
-    encode_seg_header(hdr, type, (int64_t)content_len, 0 /* patched */, chunk_count);
+    encode_seg_header(hdr, type, flags, (int64_t)content_len, 0 /* patched */, chunk_count);
     if (fwrite(hdr, 1, 32, w->file) != 32) return 0;
     if (content_len > 0) {
         if (fwrite(content, 1, content_len, w->file) != content_len) return 0;
@@ -512,7 +522,7 @@ static int write_segment(MeasWriter *w, int32_t type, const uint8_t *content,
     if (next_off < 0) return 0;
 
     /* Patch NextSegmentOffset in the already-written segment header */
-    encode_seg_header(hdr, type, (int64_t)content_len, (int64_t)next_off, chunk_count);
+    encode_seg_header(hdr, type, flags, (int64_t)content_len, (int64_t)next_off, chunk_count);
     if (fseek(w->file, seg_start, SEEK_SET) != 0) return 0;
     if (fwrite(hdr, 1, 32, w->file) != 32) return 0;
     if (fseek(w->file, next_off, SEEK_SET) != 0) return 0;
@@ -544,7 +554,7 @@ static int ensure_metadata(MeasWriter *w) {
         bbuf_free(&meta); return 0;
     }
     w->metadata_content_offset = ftell(w->file) + MEAS_SEG_HEADER_SIZE;
-    int ok = write_segment(w, MEAS_SEG_TYPE_METADATA, meta.data, meta.size, 0);
+    int ok = write_segment(w, MEAS_SEG_TYPE_METADATA, 0, meta.data, meta.size, 0);
     bbuf_free(&meta);
     return ok;
 }
@@ -611,6 +621,91 @@ MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *na
     return ch;
 }
 
+int meas_writer_set_compression(MeasWriter *writer, MeasCompression compression) {
+    if (!writer || writer->metadata_written) return -1;
+    switch (compression) {
+        case MEAS_COMPRESS_NONE: break;
+#ifdef MEAS_HAVE_LZ4
+        case MEAS_COMPRESS_LZ4: break;
+#endif
+#ifdef MEAS_HAVE_ZSTD
+        case MEAS_COMPRESS_ZSTD: break;
+#endif
+        default: return -1; /* unsupported */
+    }
+    writer->compression = compression;
+    return 0;
+}
+
+/* Compress data in-place into a new buffer; returns NULL on failure.
+   Caller must free() the returned pointer.
+   *out_len is set to the compressed size. */
+static uint8_t *compress_segment(const uint8_t *data, size_t len,
+                                  MeasCompression algo, size_t *out_len) {
+    (void)data; (void)len; (void)algo; (void)out_len;
+#ifdef MEAS_HAVE_LZ4
+    if (algo == MEAS_COMPRESS_LZ4) {
+        int max_dst = LZ4_compressBound((int)len);
+        uint8_t *buf = (uint8_t *)malloc(4 + (size_t)max_dst);
+        if (!buf) return NULL;
+        /* 4-byte LE original size prefix (same as C# impl) */
+        write_le32(buf, (uint32_t)len);
+        int compressed = LZ4_compress_default((const char *)data, (char *)(buf + 4),
+                                               (int)len, max_dst);
+        if (compressed <= 0) { free(buf); return NULL; }
+        *out_len = 4 + (size_t)compressed;
+        return buf;
+    }
+#endif
+#ifdef MEAS_HAVE_ZSTD
+    if (algo == MEAS_COMPRESS_ZSTD) {
+        size_t bound = ZSTD_compressBound(len);
+        uint8_t *buf = (uint8_t *)malloc(bound);
+        if (!buf) return NULL;
+        size_t compressed = ZSTD_compress(buf, bound, data, len, 3);
+        if (ZSTD_isError(compressed)) { free(buf); return NULL; }
+        *out_len = compressed;
+        return buf;
+    }
+#endif
+    return NULL;
+}
+
+/* Decompress segment content; returns NULL on failure.
+   Caller must free() the returned pointer.
+   *out_len is set to the decompressed size. */
+static uint8_t *decompress_segment(const uint8_t *data, size_t len,
+                                    MeasCompression algo, size_t *out_len) {
+    (void)data; (void)len; (void)algo; (void)out_len;
+#ifdef MEAS_HAVE_LZ4
+    if (algo == MEAS_COMPRESS_LZ4) {
+        if (len < 4) return NULL;
+        uint32_t orig_size = read_le32(data);
+        uint8_t *buf = (uint8_t *)malloc(orig_size);
+        if (!buf) return NULL;
+        int decoded = LZ4_decompress_safe((const char *)(data + 4), (char *)buf,
+                                           (int)(len - 4), (int)orig_size);
+        if (decoded < 0) { free(buf); return NULL; }
+        *out_len = (size_t)orig_size;
+        return buf;
+    }
+#endif
+#ifdef MEAS_HAVE_ZSTD
+    if (algo == MEAS_COMPRESS_ZSTD) {
+        unsigned long long orig_size = ZSTD_getFrameContentSize(data, len);
+        if (orig_size == ZSTD_CONTENTSIZE_ERROR ||
+            orig_size == ZSTD_CONTENTSIZE_UNKNOWN) return NULL;
+        uint8_t *buf = (uint8_t *)malloc((size_t)orig_size);
+        if (!buf) return NULL;
+        size_t decoded = ZSTD_decompress(buf, (size_t)orig_size, data, len);
+        if (ZSTD_isError(decoded)) { free(buf); return NULL; }
+        *out_len = decoded;
+        return buf;
+    }
+#endif
+    return NULL;
+}
+
 int meas_writer_flush(MeasWriter *writer) {
     if (!writer) return -1;
     if (!ensure_metadata(writer)) return -1;
@@ -645,7 +740,23 @@ int meas_writer_flush(MeasWriter *writer) {
         }
     }
 
-    int ok = write_segment(writer, MEAS_SEG_TYPE_DATA, seg.data, seg.size, pending);
+    /* Compress if requested */
+    const uint8_t *content_data = seg.data;
+    size_t content_len = seg.size;
+    uint8_t *compressed = NULL;
+    int32_t flags = (int32_t)(writer->compression & 0x0F);
+
+    if (writer->compression != MEAS_COMPRESS_NONE) {
+        size_t comp_len = 0;
+        compressed = compress_segment(seg.data, seg.size, writer->compression, &comp_len);
+        if (!compressed) { bbuf_free(&seg); return -1; }
+        content_data = compressed;
+        content_len = comp_len;
+    }
+
+    int ok = write_segment(writer, MEAS_SEG_TYPE_DATA, flags,
+                            content_data, content_len, pending);
+    free(compressed);
     bbuf_free(&seg);
     if (fflush(writer->file) != 0) return -1;
     return ok ? 0 : -1;
@@ -1833,6 +1944,7 @@ MeasReader *meas_reader_open(const char *path) {
 
         const uint8_t *shdr = filebuf + offset;
         int32_t seg_type    = (int32_t)read_le32(shdr);
+        int32_t seg_flags   = (int32_t)read_le32(shdr + 4);
         int64_t content_len = (int64_t)read_le64(shdr + 8);
         int64_t next_off    = (int64_t)read_le64(shdr + 16);
 
@@ -1841,6 +1953,21 @@ MeasReader *meas_reader_open(const char *path) {
 
         const uint8_t *content = filebuf + content_start;
         size_t         content_sz = (size_t)content_len;
+
+        /* Decompress if segment is compressed (§4a) */
+        uint8_t *decompressed = NULL;
+        MeasCompression comp = (MeasCompression)(seg_flags & 0x0F);
+        if (comp != MEAS_COMPRESS_NONE) {
+            size_t dec_len = 0;
+            decompressed = decompress_segment(content, content_sz, comp, &dec_len);
+            if (!decompressed) { /* skip segment on decompression failure */
+                if (next_off <= offset) break;
+                offset = next_off;
+                continue;
+            }
+            content = decompressed;
+            content_sz = dec_len;
+        }
 
         if (seg_type == MEAS_SEG_TYPE_METADATA) {
             /* Decode metadata first so channels exist for data segments */
@@ -1851,7 +1978,7 @@ MeasReader *meas_reader_open(const char *path) {
                 total_channels += r->groups[gi].channel_count;
             flat_channels = (MeasChannelData **)calloc(
                 (size_t)(total_channels > 0 ? total_channels : 1), sizeof(*flat_channels));
-            if (!flat_channels) break;
+            if (!flat_channels) { free(decompressed); break; }
             int idx = 0;
             for (int gi = 0; gi < r->group_count; gi++)
                 for (int ci = 0; ci < r->groups[gi].channel_count; ci++)
@@ -1859,6 +1986,8 @@ MeasReader *meas_reader_open(const char *path) {
         } else if (seg_type == MEAS_SEG_TYPE_DATA && flat_channels) {
             decode_data_segment(content, content_sz, flat_channels, total_channels);
         }
+
+        free(decompressed);
 
         if (next_off <= offset) break; /* end of chain (§5) */
         offset = next_off;

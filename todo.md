@@ -9,7 +9,7 @@
 - [x] AUTOSAR: PDU/ContainedPdu/Mux/E2E/SecOC
 - [x] Signal decoding (Intel/Motorola byte order)
 - [x] Performance benchmarks (BenchmarkDotNet)
-- [ ] Compression (LZ4/Zstd segments)
+- [x] Compression (LZ4/Zstd segments)
 - [ ] Memory-mapped I/O for large files
 
 ## Cross-Language Implementations

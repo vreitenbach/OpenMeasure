@@ -450,6 +450,14 @@ typedef struct MeasEthernetFrame {
     const uint8_t  *payload;  /* NOT owned */
 } MeasEthernetFrame;
 
+/* ── Compression (§4a) ────────────────────────────────────────────────────── */
+
+typedef enum MeasCompression {
+    MEAS_COMPRESS_NONE = 0,
+    MEAS_COMPRESS_LZ4  = 1,
+    MEAS_COMPRESS_ZSTD = 2,
+} MeasCompression;
+
 /* ── Writer types ──────────────────────────────────────────────────────────── */
 
 typedef struct MeasWriter        MeasWriter;
@@ -463,6 +471,14 @@ typedef struct MeasChannelWriter MeasChannelWriter;
  * @return  Non-NULL writer handle on success; NULL on error.
  */
 MeasWriter *meas_writer_open(const char *path);
+
+/**
+ * Set compression algorithm for data segments.
+ * Must be called before the first flush. Default is MEAS_COMPRESS_NONE.
+ * Requires the library to be built with MEAS_HAVE_LZ4 / MEAS_HAVE_ZSTD.
+ * @return  0 on success, -1 if compression is not available.
+ */
+int meas_writer_set_compression(MeasWriter *writer, MeasCompression compression);
 
 /**
  * Flush all buffered samples to the file as a new Data segment.

@@ -21,7 +21,7 @@ __all__ = [
     "MeasDataType", "MeasTimestamp", "MeasValue",
     # Reader
     "MeasReader", "MeasGroup", "MeasChannel", "ChannelStatistics",
-    # Writer
+    # Writer (pass compression="lz4" or compression="zstd" to MeasWriter)
     "MeasWriter", "GroupWriter", "ChannelWriter",
     # Bus metadata (§10)
     "BusChannelDefinition", "BusConfig", "BusType",

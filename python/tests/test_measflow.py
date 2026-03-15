@@ -470,3 +470,88 @@ def test_statistics_not_available_for_string(tmp_meas):
 
     with MeasReader(tmp_meas) as r:
         assert r["G"]["S"].statistics is None
+
+
+# ── Compression tests (§4a) ─────────────────────────────────────────────────
+
+@pytest.mark.parametrize("compression", ["lz4", "zstd"])
+def test_compression_roundtrip_float(tmp_path, compression):
+    path = str(tmp_path / f"comp_{compression}.meas")
+    data = np.array([1.0, 2.5, -3.14, 0.0, 1e6], dtype=np.float32)
+    with MeasWriter(path, compression=compression) as w:
+        ch = w.add_group("G").add_channel("V", MeasDataType.Float32)
+        ch.write_bulk(data.tolist())
+    with MeasReader(path) as r:
+        np.testing.assert_array_almost_equal(r["G"]["V"].read_all(), data)
+
+
+@pytest.mark.parametrize("compression", ["lz4", "zstd"])
+def test_compression_roundtrip_multiple_types(tmp_path, compression):
+    path = str(tmp_path / f"multi_{compression}.meas")
+    ints = [-1, 0, 42, 2**31 - 1, -(2**31)]
+    floats = [3.14, 2.718, 0.0, -999.9, 1e20]
+    with MeasWriter(path, compression=compression) as w:
+        g = w.add_group("M")
+        g.add_channel("I", MeasDataType.Int32).write_bulk(ints)
+        g.add_channel("F", MeasDataType.Float64).write_bulk(floats)
+    with MeasReader(path) as r:
+        np.testing.assert_array_equal(r["M"]["I"].read_all(), ints)
+        np.testing.assert_array_almost_equal(r["M"]["F"].read_all(), floats)
+
+
+@pytest.mark.parametrize("compression", ["lz4", "zstd"])
+def test_compression_incremental_flush(tmp_path, compression):
+    path = str(tmp_path / f"flush_{compression}.meas")
+    with MeasWriter(path, compression=compression) as w:
+        ch = w.add_group("G").add_channel("V", MeasDataType.Float64)
+        ch.write_bulk([1.0, 2.0])
+        w.flush()
+        ch.write_bulk([3.0, 4.0])
+        w.flush()
+        ch.write(5.0)
+    with MeasReader(path) as r:
+        result = r["G"]["V"].read_all()
+    np.testing.assert_array_almost_equal(result, [1.0, 2.0, 3.0, 4.0, 5.0])
+
+
+@pytest.mark.parametrize("compression", ["lz4", "zstd"])
+def test_compression_smaller_than_uncompressed(tmp_path, compression):
+    path_none = str(tmp_path / "none.meas")
+    path_comp = str(tmp_path / f"comp_{compression}.meas")
+    data = [(i % 100) * 1.0 for i in range(50_000)]
+    for path, comp in [(path_none, "none"), (path_comp, compression)]:
+        with MeasWriter(path, compression=comp) as w:
+            w.add_group("G").add_channel("V", MeasDataType.Float64).write_bulk(data)
+    size_none = Path(path_none).stat().st_size
+    size_comp = Path(path_comp).stat().st_size
+    assert size_comp < size_none, f"{compression}: {size_comp} >= {size_none}"
+
+
+@pytest.mark.parametrize("compression", ["lz4", "zstd"])
+def test_compression_statistics_preserved(tmp_path, compression):
+    path = str(tmp_path / f"stats_{compression}.meas")
+    data = [10.0, 20.0, 30.0, 40.0, 50.0]
+    with MeasWriter(path, compression=compression) as w:
+        w.add_group("G").add_channel("V", MeasDataType.Float64).write_bulk(data)
+    with MeasReader(path) as r:
+        stats = r["G"]["V"].statistics
+    assert stats is not None
+    assert stats.count == 5
+    assert stats.min == pytest.approx(10.0)
+    assert stats.max == pytest.approx(50.0)
+    assert stats.mean == pytest.approx(30.0)
+
+
+@pytest.mark.parametrize("compression", ["lz4", "zstd"])
+def test_compression_binary_frames(tmp_path, compression):
+    path = str(tmp_path / f"bin_{compression}.meas")
+    frames = [b"\x01\x02\x03", b"\xDE\xAD\xBE\xEF", b"\xFF"]
+    with MeasWriter(path, compression=compression) as w:
+        ch = w.add_group("B").add_channel("F", MeasDataType.Binary)
+        for f in frames:
+            ch.write(f)
+    with MeasReader(path) as r:
+        result = r["B"]["F"].read_all()
+    assert len(result) == len(frames)
+    for expected, actual in zip(frames, result):
+        assert expected == actual

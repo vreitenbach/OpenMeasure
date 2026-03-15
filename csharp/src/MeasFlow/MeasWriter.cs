@@ -19,6 +19,9 @@ public sealed class MeasWriter : IDisposable
     private bool _disposed;
     private long _segmentCount;
 
+    /// <summary>Compression algorithm applied to data segments.</summary>
+    public MeasCompression Compression { get; set; }
+
     internal MeasWriter(FileStream stream)
     {
         _stream = stream;
@@ -179,11 +182,15 @@ public sealed class MeasWriter : IDisposable
             channel.FlushToStream(dataBuffer, globalIndex);
         }
 
+        // Compress if requested
+        byte[] rawData = dataBuffer.ToArray();
+        byte[] contentData = SegmentCompressor.Compress(rawData, Compression);
+
         var segHeader = new SegmentHeader
         {
             Type = SegmentType.Data,
-            Flags = 0,
-            ContentLength = dataBuffer.Length,
+            Flags = SegmentCompressor.ToFlags(Compression),
+            ContentLength = contentData.Length,
             NextSegmentOffset = 0, // patched below
             ChunkCount = chunks.Count,
             Crc32 = 0,
@@ -194,8 +201,7 @@ public sealed class MeasWriter : IDisposable
         segHeader.WriteTo(segBuf);
         _stream.Write(segBuf);
 
-        dataBuffer.Position = 0;
-        dataBuffer.CopyTo(_stream);
+        _stream.Write(contentData);
 
         // Patch next offset
         long nextOffset = _stream.Position;

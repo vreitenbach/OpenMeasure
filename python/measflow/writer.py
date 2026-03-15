@@ -191,10 +191,20 @@ class MeasWriter:
     Channel statistics (§13) are computed incrementally and patched into the
     metadata segment on close so they always reflect the full dataset.
     Use as a context manager or call close() explicitly.
+
+    Args:
+        path: File path to write to.
+        compression: Compression algorithm for data segments.
+            ``"none"`` (default), ``"lz4"``, or ``"zstd"``.
     """
 
-    def __init__(self, path: str) -> None:
+    _COMPRESSION_FLAGS = {"none": 0, "lz4": 1, "zstd": 2}
+
+    def __init__(self, path: str, compression: str = "none") -> None:
+        if compression not in self._COMPRESSION_FLAGS:
+            raise ValueError(f"Unknown compression: {compression!r}. Use 'none', 'lz4', or 'zstd'.")
         self._path = path
+        self._compression = compression
         self._groups: list[GroupWriter] = []
         self._segment_count = 0
         self._metadata_written = False
@@ -290,11 +300,12 @@ class MeasWriter:
         self._file.write(final_meta)
         self._file.seek(0, 2)  # seek back to end
 
-    def _write_segment(self, seg_type: int, content: bytes, chunk_count: int) -> None:
+    def _write_segment(self, seg_type: int, content: bytes, chunk_count: int,
+                        flags: int = 0) -> None:
         seg_start = self._file.tell()
         seg = SegmentHeader(
             type=seg_type,
-            flags=0,
+            flags=flags,
             content_length=len(content),
             next_segment_offset=0,  # patched below
             chunk_count=chunk_count,
@@ -309,10 +320,25 @@ class MeasWriter:
         self._file.seek(next_off)
         self._segment_count += 1
 
+    def _compress(self, data: bytes) -> tuple[bytes, int]:
+        """Compress data and return (compressed_bytes, flags)."""
+        if self._compression == "lz4":
+            import lz4.block
+            compressed = lz4.block.compress(data, store_size=True)
+            return compressed, self._COMPRESSION_FLAGS["lz4"]
+        if self._compression == "zstd":
+            import zstandard
+            cctx = zstandard.ZstdCompressor(level=3)
+            compressed = cctx.compress(data)
+            return compressed, self._COMPRESSION_FLAGS["zstd"]
+        return data, 0
+
     def _write_data_segment(self, pending: list) -> None:
         parts = [struct.pack("<i", len(pending))]
         for global_idx, ch in pending:
             raw = ch._to_bytes()
             parts.append(struct.pack(CHUNK_HEADER_FMT, global_idx, ch.sample_count, len(raw)))
             parts.append(raw)
-        self._write_segment(SegmentType.DATA, b"".join(parts), chunk_count=len(pending))
+        content = b"".join(parts)
+        content, flags = self._compress(content)
+        self._write_segment(SegmentType.DATA, content, chunk_count=len(pending), flags=flags)

@@ -15,6 +15,31 @@ else()
     target_compile_options(measflow PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# ── Optional compression support ─────────────────────────────────────────────
+
+find_package(PkgConfig QUIET)
+
+if(PkgConfig_FOUND)
+    pkg_check_modules(LZ4 IMPORTED_TARGET liblz4)
+    pkg_check_modules(ZSTD IMPORTED_TARGET libzstd)
+endif()
+
+if(LZ4_FOUND)
+    target_compile_definitions(measflow PUBLIC MEAS_HAVE_LZ4)
+    target_link_libraries(measflow PUBLIC PkgConfig::LZ4)
+    message(STATUS "LZ4 compression: enabled")
+else()
+    message(STATUS "LZ4 compression: disabled (liblz4 not found)")
+endif()
+
+if(ZSTD_FOUND)
+    target_compile_definitions(measflow PUBLIC MEAS_HAVE_ZSTD)
+    target_link_libraries(measflow PUBLIC PkgConfig::ZSTD)
+    message(STATUS "Zstd compression: enabled")
+else()
+    message(STATUS "Zstd compression: disabled (libzstd not found)")
+endif()
+
 # ── Quickstart ───────────────────────────────────────────────────────────────
 
 option(MEAS_BUILD_QUICKSTART "Build quickstart example" OFF)

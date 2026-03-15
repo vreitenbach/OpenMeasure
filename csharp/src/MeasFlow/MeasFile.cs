@@ -8,11 +8,11 @@ public static class MeasFile
     /// <summary>
     /// Create a new MEAS file for writing.
     /// </summary>
-    public static MeasWriter CreateWriter(string path)
+    public static MeasWriter CreateWriter(string path, MeasCompression compression = MeasCompression.None)
     {
         var stream = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read,
             bufferSize: 64 * 1024);
-        return new MeasWriter(stream);
+        return new MeasWriter(stream) { Compression = compression };
     }
 
     /// <summary>

@@ -12,7 +12,8 @@ license = { text = "MIT" }
 dependencies = ["numpy>=1.24"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+compression = ["lz4>=4.0", "zstandard>=0.20"]
+dev = ["pytest>=7.0", "lz4>=4.0", "zstandard>=0.20"]
 
 [tool.setuptools.packages.find]
 include = ["measflow*"]

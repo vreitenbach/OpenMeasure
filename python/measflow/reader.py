@@ -208,6 +208,16 @@ class MeasReader:
                 break
             content = bytes(data[content_start:content_end])
 
+            # Decompress if segment is compressed (§4a)
+            comp_type = seg.flags & 0x0F
+            if comp_type == 1:  # LZ4
+                import lz4.block
+                content = lz4.block.decompress(content)
+            elif comp_type == 2:  # Zstd
+                import zstandard
+                dctx = zstandard.ZstdDecompressor()
+                content = dctx.decompress(content)
+
             if seg.type == SegmentType.METADATA:
                 group_defs = decode_metadata(content)
             elif seg.type == SegmentType.DATA:

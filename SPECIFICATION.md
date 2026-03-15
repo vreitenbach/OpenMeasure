@@ -105,7 +105,7 @@ Every segment starts with a 32-byte header:
 | Offset | Size | Type   | Field              | Description                                      |
 |--------|------|--------|--------------------|--------------------------------------------------|
 | 0      | 4    | int32  | Type               | Segment type (see below).                        |
-| 4      | 4    | int32  | Flags              | Bit flags. `0` = uncompressed. Reserved for future. |
+| 4      | 4    | int32  | Flags              | Compression algorithm in bits 0–3. See §4a.      |
 | 8      | 8    | int64  | ContentLength      | Byte count of the content following this header. |
 | 16     | 8    | int64  | NextSegmentOffset  | Absolute byte offset to the next segment header. `0` or past-end = last segment. |
 | 24     | 4    | int32  | ChunkCount         | Number of data chunks (0 for metadata segments). |
@@ -120,6 +120,27 @@ Every segment starts with a 32-byte header:
 | 3     | Index    | Reserved for future index/seek support    |
 
 **Linked list traversal**: To read all segments, start at `FirstSegmentOffset`, read the segment header, skip `ContentLength` bytes, then follow `NextSegmentOffset`. Stop when `NextSegmentOffset ≤ current offset` or `NextSegmentOffset ≥ file size`.
+
+### §4a. Segment Compression
+
+The lower 4 bits of `Flags` (bits 0–3) encode the compression algorithm applied to the segment content:
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0     | None | Content is uncompressed (default). |
+| 1     | LZ4  | Content is LZ4-compressed. Wire format: `[int32: originalSize][LZ4 frame]`. |
+| 2     | Zstd | Content is Zstandard-compressed. Wire format: standard Zstd frame (self-describing size). |
+| 3–15  | —    | Reserved for future algorithms. |
+
+**Compression scope**: Compression applies to the segment content only — the 32-byte segment header is always uncompressed. `ContentLength` stores the **compressed** size (i.e., the exact number of bytes following the header on disk).
+
+**LZ4 wire format**: A 4-byte little-endian `int32` prefix stores the original uncompressed size, followed by the LZ4-compressed payload. The prefix is needed because LZ4 requires the output buffer size at decompression time.
+
+**Zstd wire format**: A standard Zstd frame which is self-describing (the decompressed size is embedded in the frame header by default).
+
+**Reader requirement**: A conforming reader MUST check the Flags field and decompress the content before parsing chunks. A reader MAY reject unknown compression values (3–15) with an error.
+
+**Writer requirement**: A writer MUST set the Flags field to the compression algorithm used. Metadata segments SHOULD NOT be compressed (Flags = 0) to allow fast header-only reads.
 
 ---
 
