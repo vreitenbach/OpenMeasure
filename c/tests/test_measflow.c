@@ -446,6 +446,54 @@ static void test_single_value_helpers(void) {
     PASS();
 }
 
+static void test_string_channel(void) {
+    TEST("string_channel");
+    /* §7: Utf8String channels use the same [int32: len][bytes] frame format as Binary. */
+    const char *path = tmp_file("strings.meas");
+
+    const char *s0 = "Hello";
+    const char *s1 = "MeasFlow";
+    const char *s2 = "UTF-8: \xc3\xa9\xc3\xa0\xc3\xbc";  /* é à ü */
+
+    MeasWriter *w = meas_writer_open(path);
+    ASSERT(w != NULL);
+    MeasGroupWriter *g = meas_writer_add_group(w, "Labels");
+    MeasChannelWriter *ch = meas_group_add_channel(g, "Name", MEAS_STRING);
+
+    ASSERT_EQ_INT(meas_channel_write_string(ch, s0), 0);
+    ASSERT_EQ_INT(meas_channel_write_string(ch, s1), 0);
+    ASSERT_EQ_INT(meas_channel_write_string(ch, s2), 0);
+    meas_writer_close(w);
+
+    MeasReader *r = meas_reader_open(path);
+    ASSERT(r != NULL);
+    const MeasChannelData *rch =
+        meas_group_channel_by_name(meas_reader_group(r, 0), "Name");
+    ASSERT(rch != NULL);
+    ASSERT_EQ_INT(rch->data_type,    MEAS_STRING);
+    ASSERT_EQ_INT(rch->sample_count, 3);
+
+    int64_t state = 0;
+    const uint8_t *fd; int32_t fl;
+
+    ASSERT_EQ_INT(meas_channel_next_frame(rch, &state, &fd, &fl), 1);
+    ASSERT_EQ_INT(fl, (int32_t)strlen(s0));
+    ASSERT_EQ_INT(memcmp(fd, s0, (size_t)fl), 0);
+
+    ASSERT_EQ_INT(meas_channel_next_frame(rch, &state, &fd, &fl), 1);
+    ASSERT_EQ_INT(fl, (int32_t)strlen(s1));
+    ASSERT_EQ_INT(memcmp(fd, s1, (size_t)fl), 0);
+
+    ASSERT_EQ_INT(meas_channel_next_frame(rch, &state, &fd, &fl), 1);
+    ASSERT_EQ_INT(fl, (int32_t)strlen(s2));
+    ASSERT_EQ_INT(memcmp(fd, s2, (size_t)fl), 0);
+
+    ASSERT_EQ_INT(meas_channel_next_frame(rch, &state, &fd, &fl), 0);  /* exhausted */
+
+    meas_reader_close(r);
+    PASS();
+}
+
 static void test_cross_language_read(void) {
     TEST("cross_language_read_demo_file");
     /* Try to open the demo measurement file written by the C# implementation.
@@ -480,6 +528,7 @@ int main(void) {
     test_binary_channel();
     test_null_safety();
     test_single_value_helpers();
+    test_string_channel();
     test_cross_language_read();
 
     printf("\n%d/%d tests passed", g_passed, g_tests);

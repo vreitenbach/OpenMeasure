@@ -277,6 +277,16 @@ int meas_channel_write_bool_one(MeasChannelWriter *ch, int value);
  */
 int meas_channel_write_frame(MeasChannelWriter *ch, const uint8_t *frame, int32_t length);
 
+/**
+ * Write a single UTF-8 string sample to a MEAS_STRING channel (§7).
+ * The string is stored as [int32: byteLength][bytes: UTF-8 data] without a
+ * null terminator.  `str` must be a null-terminated, valid UTF-8 C string.
+ * UTF-8 validity is not checked; the caller is responsible for encoding.
+ * Strings longer than INT32_MAX bytes are rejected with a return value of -1.
+ * @return  0 on success, -1 on error.
+ */
+int meas_channel_write_string(MeasChannelWriter *ch, const char *str);
+
 #ifdef __cplusplus
 }
 #endif

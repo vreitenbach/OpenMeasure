@@ -90,7 +90,7 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 | 48     | 8    | int64   | CreatedAtNanos     | File creation time as nanoseconds since Unix epoch. |
 | 56     | 8    | int64   | Reserved           | Must be `0`. Padding to exactly 64 bytes.         |
 
-**Magic byte pattern** (hex): `4F 4D 58 00`
+**Magic byte pattern** (hex): `4D 45 41 53`
 
 **Version negotiation**: Readers MUST reject files with `Version > 1` unless they understand the newer version. Readers MUST reject files where `Magic ≠ 0x5341454D`.
 
@@ -176,9 +176,9 @@ raw data = sampleCount × sizeof(dataType) bytes
 
 Values are stored sequentially in little-endian format. Zero-copy memory-mapping is possible on little-endian platforms.
 
-### Variable-size channel data (Binary type)
+### Variable-size channel data (Binary and Utf8String types)
 
-For channels with `dataType = Binary (0x31)`, each sample is a length-prefixed frame:
+For channels with `dataType = Binary (0x31)` or `dataType = Utf8String (0x30)`, each sample is a length-prefixed frame:
 
 ```
 raw data :=
@@ -188,6 +188,8 @@ Frame :=
   [int32: frameByteLength]
   [bytes: frame data]       // Exactly frameByteLength bytes
 ```
+
+For `Utf8String`, `frame data` is the UTF-8 encoded string without a null terminator. `frameByteLength` is the byte count, not the character count.
 
 ---
 
@@ -523,7 +525,9 @@ A conforming writer MUST support incremental flushing:
 2. **Define structure**: Build group/channel definitions in memory.
 3. **First flush**: Write the Metadata segment, then the first Data segment.
 4. **Subsequent flushes**: Each `Flush()` writes a new Data segment with only the data buffered since the last flush.
-5. **Close**: Write any remaining buffered data as a final Data segment. Patch the file header with the correct `SegmentCount`.
+5. **Close**: Write any remaining buffered data as a final Data segment. Then seek back to patch two locations:
+   - The file header at offset 0: write the final `SegmentCount`.
+   - The Metadata segment content: overwrite the `MEAS.stats.*` channel properties with the final accumulated statistics (see §12.5).
 
 **Memory invariant**: After each flush, the writer's internal buffers are cleared. A writer streaming 10 GB of data needs only O(chunk_size) memory at any time.
 
@@ -560,9 +564,11 @@ The segment-based design allows concurrent access:
 
 Channel statistics (min, max, mean, variance, count) are computed incrementally using **Welford's online algorithm** during writes. This means:
 
-- Statistics are correct after every `Flush()` — no post-processing needed
-- Statistics for the entire channel are stored in the metadata segment (written on close)
-- A reader can access statistics **without reading any data chunks**
+- Statistics are updated in memory after every sample write — no buffering of raw data needed.
+- On `Close()`, the writer **seeks back** to the Metadata segment and overwrites the `MEAS.stats.*` channel properties in-place with the final accumulated values.
+- A reader opened after `Close()` can access statistics **without reading any data chunks**.
+
+**Patch-on-close design**: The Metadata segment is written first (with zeroed/absent statistics) and then patched at the end. This requires the backing storage to be **seekable** (a regular file). Pure pipe or non-seekable stream writers MUST omit statistics properties entirely rather than writing incorrect values.
 
 ---
 
@@ -599,11 +605,13 @@ A conforming writer MUST:
 - Use little-endian encoding for all multi-byte values
 - Store valid `NextSegmentOffset` in every segment header
 - Update `SegmentCount` in the file header on close
+- Seek back and patch the Metadata segment with final `MEAS.stats.*` channel properties on close (patch-on-close; see §12.5)
 
 A conforming writer SHOULD:
 - Support incremental flushing (streaming writes)
 - Compute and store channel statistics for numeric channels
 - Use 64 KB buffer size for file I/O
+- Omit `MEAS.stats.*` properties entirely when writing to a non-seekable stream
 
 ### Reader conformance
 
@@ -644,8 +652,8 @@ Offset  Hex                                              ASCII
 0007A   00 00 00 00              -- 0 channel properties
 
         --- Data Segment Header (32 B) ---
-        01 00 00 00 00 00 00 00  xx xx xx xx xx xx xx xx
-        xx xx xx xx xx xx xx xx  01 00 00 00 00 00 00 00
+        02 00 00 00 00 00 00 00  xx xx xx xx xx xx xx xx  [Type=2][Flags=0]
+        xx xx xx xx xx xx xx xx  01 00 00 00 00 00 00 00  [NextOff][1 chunk]
 
         --- Data Content ---
         01 00 00 00              -- chunkCount = 1

@@ -805,6 +805,20 @@ int meas_channel_write_frame(MeasChannelWriter *ch, const uint8_t *frame, int32_
     ch->sample_count_pending++; return 0;
 }
 
+/* Write a single UTF-8 string sample (§7: same frame format as MEAS_BINARY).
+   Stores [int32: byteLength][UTF-8 bytes] without a null terminator.
+   Rejects strings longer than INT32_MAX bytes. */
+int meas_channel_write_string(MeasChannelWriter *ch, const char *str) {
+    if (!ch || ch->dtype != MEAS_STRING || !str) return -1;
+    size_t slen = strlen(str);
+    if (slen > (size_t)INT32_MAX) return -1;  /* guard against overflow */
+    int32_t len = (int32_t)slen;
+    uint8_t len_buf[4]; write_le32(len_buf, (uint32_t)len);
+    if (!bbuf_append(&ch->buf, len_buf, 4)) return -1;
+    if (len > 0 && !bbuf_append(&ch->buf, str, (size_t)len)) return -1;
+    ch->sample_count_pending++; return 0;
+}
+
 /* Single-value wrappers */
 int meas_channel_write_f32_one(MeasChannelWriter *ch, float    v) { return meas_channel_write_f32(ch, &v, 1); }
 int meas_channel_write_f64_one(MeasChannelWriter *ch, double   v) { return meas_channel_write_f64(ch, &v, 1); }

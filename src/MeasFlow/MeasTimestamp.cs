@@ -128,7 +128,7 @@ public readonly struct MeasTimestamp : IEquatable<MeasTimestamp>, IComparable<Me
         => new(ts.Nanoseconds - span.Ticks * DotNetTicksPerNanosecond);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static OmxTimeSpan operator -(MeasTimestamp a, MeasTimestamp b)
+    public static MeasTimeSpan operator -(MeasTimestamp a, MeasTimestamp b)
         => new(a.Nanoseconds - b.Nanoseconds);
 
     // --- Comparison ---
@@ -168,17 +168,17 @@ public readonly struct MeasTimestamp : IEquatable<MeasTimestamp>, IComparable<Me
 /// High-resolution time span. Stores nanoseconds.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
-public readonly struct OmxTimeSpan : IEquatable<OmxTimeSpan>, IComparable<OmxTimeSpan>
+public readonly struct MeasTimeSpan : IEquatable<MeasTimeSpan>, IComparable<MeasTimeSpan>
 {
     public readonly long Nanoseconds;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public OmxTimeSpan(long nanoseconds) => Nanoseconds = nanoseconds;
+    public MeasTimeSpan(long nanoseconds) => Nanoseconds = nanoseconds;
 
-    public static OmxTimeSpan FromSeconds(double seconds)
+    public static MeasTimeSpan FromSeconds(double seconds)
         => new((long)(seconds * 1_000_000_000L));
 
-    public static OmxTimeSpan FromMilliseconds(long ms)
+    public static MeasTimeSpan FromMilliseconds(long ms)
         => new(ms * 1_000_000L);
 
     public double TotalSeconds => (double)Nanoseconds / 1_000_000_000L;
@@ -186,14 +186,14 @@ public readonly struct OmxTimeSpan : IEquatable<OmxTimeSpan>, IComparable<OmxTim
 
     public TimeSpan ToTimeSpan() => TimeSpan.FromTicks(Nanoseconds / 100);
 
-    public int CompareTo(OmxTimeSpan other) => Nanoseconds.CompareTo(other.Nanoseconds);
-    public bool Equals(OmxTimeSpan other) => Nanoseconds == other.Nanoseconds;
-    public override bool Equals(object? obj) => obj is OmxTimeSpan ts && Equals(ts);
+    public int CompareTo(MeasTimeSpan other) => Nanoseconds.CompareTo(other.Nanoseconds);
+    public bool Equals(MeasTimeSpan other) => Nanoseconds == other.Nanoseconds;
+    public override bool Equals(object? obj) => obj is MeasTimeSpan ts && Equals(ts);
     public override int GetHashCode() => Nanoseconds.GetHashCode();
     public override string ToString() => $"{TotalSeconds:F9}s";
 
-    public static bool operator ==(OmxTimeSpan a, OmxTimeSpan b) => a.Nanoseconds == b.Nanoseconds;
-    public static bool operator !=(OmxTimeSpan a, OmxTimeSpan b) => a.Nanoseconds != b.Nanoseconds;
-    public static bool operator <(OmxTimeSpan a, OmxTimeSpan b) => a.Nanoseconds < b.Nanoseconds;
-    public static bool operator >(OmxTimeSpan a, OmxTimeSpan b) => a.Nanoseconds > b.Nanoseconds;
+    public static bool operator ==(MeasTimeSpan a, MeasTimeSpan b) => a.Nanoseconds == b.Nanoseconds;
+    public static bool operator !=(MeasTimeSpan a, MeasTimeSpan b) => a.Nanoseconds != b.Nanoseconds;
+    public static bool operator <(MeasTimeSpan a, MeasTimeSpan b) => a.Nanoseconds < b.Nanoseconds;
+    public static bool operator >(MeasTimeSpan a, MeasTimeSpan b) => a.Nanoseconds > b.Nanoseconds;
 }

@@ -27,3 +27,10 @@
 - [x] Data Viewer (signal plots, frame browser)
 - [ ] MATLAB integration
 - [ ] Excel plugin
+
+## Publishing
+
+- [ ] NuGet package release for C#
+- [ ] PyPI release for Python
+- [ ] Vcpkg release for C
+
