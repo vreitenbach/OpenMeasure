@@ -46,17 +46,18 @@ jobs:
         run: |
           dotnet run --project csharp/benchmarks/MeasFlow.Benchmarks/MeasFlow.Benchmarks.csproj \
             -c Release -- --exporters GitHub
-          # BenchmarkDotNet writes artifacts relative to CWD (repo root)
-          ARTS=BenchmarkDotNet.Artifacts/results
-          ls -la "$ARTS"/ 2>/dev/null || echo "No artifacts at $ARTS, trying alt path..."
-          # Fallback: check under the project directory
-          [ ! -d "$ARTS" ] && ARTS=csharp/benchmarks/MeasFlow.Benchmarks/BenchmarkDotNet.Artifacts/results
-          cp "$ARTS"/*CrossLanguage*-report-github.md csharp_xlang.md 2>/dev/null || true
-          cp "$ARTS"/*FormatComparison*-report-github.md csharp_fmtcmp.md 2>/dev/null || true
-          cp "$ARTS"/*WriteBenchmarks*-report-github.md csharp_write.md 2>/dev/null || true
-          cp "$ARTS"/*ReadBenchmarks*-report-github.md csharp_read.md 2>/dev/null || true
-          cp "$ARTS"/*FileSizeBenchmarks*-report-github.md csharp_filesize.md 2>/dev/null || true
-          echo "Copied artifacts:" && ls -la csharp_*.md 2>/dev/null || echo "No .md files copied"
+          # Find BenchmarkDotNet artifacts (path varies by environment)
+          find . -name "*-report-github.md" -path "*/BenchmarkDotNet*" | while read f; do
+            name=$(basename "$f")
+            case "$name" in
+              *CrossLanguage*)       cp "$f" csharp_xlang.md ;;
+              *FormatComparison*)    cp "$f" csharp_fmtcmp.md ;;
+              *WriteBenchmarks*)     cp "$f" csharp_write.md ;;
+              *ReadBenchmarks*)      cp "$f" csharp_read.md ;;
+              *FileSizeBenchmarks*)  cp "$f" csharp_filesize.md ;;
+            esac
+          done
+          echo "Copied:" && ls -la csharp_*.md 2>/dev/null || echo "No .md files found"
         continue-on-error: true
 
       # ── Python benchmarks ──────────────────────────────────────────────
