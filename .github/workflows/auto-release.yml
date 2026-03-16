@@ -34,12 +34,10 @@ jobs:
 
           # C#
           tree = ET.parse('csharp/src/MeasFlow/MeasFlow.csproj')
-          node = tree.find('.//{http://schemas.microsoft.com/developer/msbuild/2003}Version')
-          if node is None:
-              node = tree.find('.//Version')
+          node = tree.find('.//Version')
           cs = node.text.strip() if node is not None else None
           if not cs:
-              errors.append('Could not find Version in MeasFlow.csproj')
+              errors.append('Could not find Version in csharp/src/MeasFlow/MeasFlow.csproj')
 
           # C (vcpkg.json)
           with open('c/vcpkg.json') as f:
@@ -58,7 +56,7 @@ jobs:
                   print(f'::error::{e}', file=sys.stderr)
               sys.exit(1)
 
-          versions = {'python/pyproject.toml': py, 'csharp MeasFlow.csproj': cs,
+          versions = {'python/pyproject.toml': py, 'csharp/src/MeasFlow/MeasFlow.csproj': cs,
                       'c/vcpkg.json': c_ver, 'c/port/vcpkg.json': port_ver}
           unique = set(versions.values())
           if len(unique) != 1:
