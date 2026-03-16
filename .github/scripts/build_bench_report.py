@@ -199,6 +199,7 @@ def main():
 
     # ── File size comparison (100K) ──
     size_rows = []
+    raw_kb = None
     for lang in ["C", "C#", "Python"]:
         if lang not in fmtcmp or n not in fmtcmp[lang]:
             continue
@@ -206,18 +207,22 @@ def main():
         mf_entry = next((v for k, v in size_section.items() if "MeasFlow" in k), None)
         hdf_entry = next((v for k, v in size_section.items() if "HDF5" in k), None)
         raw_entry = next((v for k, v in size_section.items() if "Raw" in k.lower() or "raw" in k), None)
+        if raw_entry and "kb" in raw_entry and raw_kb is None:
+            raw_kb = raw_entry["kb"]
         if mf_entry and "kb" in mf_entry:
-            size_rows.append((lang, mf_entry.get("kb"), hdf_entry.get("kb") if hdf_entry else None, raw_entry.get("kb") if raw_entry else None))
+            size_rows.append((lang, mf_entry.get("kb"), hdf_entry.get("kb") if hdf_entry else None))
 
     if size_rows:
         out.append(f"### File Size \u2014 1ch, {n:,} samples\n")
-        out.append("| Language | MeasFlow | HDF5 | Raw |")
+        out.append("| Language | MeasFlow | HDF5 | Overhead |")
         out.append("|---|---|---|---|")
-        for lang, mf, hdf, raw in size_rows:
+        for lang, mf, hdf in size_rows:
             mf_s = fmt_kb(mf) if mf else "\u2014"
             hdf_s = fmt_kb(hdf) if hdf else "\u2014"
-            raw_s = fmt_kb(raw) if raw else "\u2014"
-            out.append(f"| {lang} | {mf_s} | {hdf_s} | {raw_s} |")
+            overhead = f"{(mf - raw_kb) / raw_kb * 100:.1f}%" if mf and raw_kb else "\u2014"
+            out.append(f"| {lang} | {mf_s} | {hdf_s} | {overhead} |")
+        if raw_kb:
+            out.append(f"\n> Raw data: {fmt_kb(raw_kb)} ({n:,} \u00d7 4 bytes)")
         out.append("")
 
     out.append("> _Numbers are indicative \u2014 CI runner performance varies between runs._\n")
