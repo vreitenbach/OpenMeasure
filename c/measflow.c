@@ -2342,81 +2342,66 @@ const MeasChannelData *meas_group_channel_by_name(const MeasGroupData *g, const 
 /* ── Typed read helpers ──────────────────────────────────────────────────── */
 
 /* For fixed-size LE types: just copy bytes, with possible byte-swap on BE hosts */
-static int64_t read_fixed(const MeasChannelData *ch, void *out,
-                           MeasDataType expected, int elem_size, int64_t max_count) {
+/* Generic bulk read: on LE hosts, memcpy directly; on BE hosts, byte-swap each element */
+static int64_t read_bulk(const MeasChannelData *ch, void *out,
+                          MeasDataType expected, int elem_size, int64_t max_count) {
     if (!ch || ch->data_type != expected || !out) return -1;
     int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    /* Data is already stored as LE bytes; on LE hosts we can memcpy directly */
 #if !MEAS_BIG_ENDIAN
-    memcpy(out, ch->data, (size_t)(n * elem_size));
+    memcpy(out, ch->data, (size_t)n * (size_t)elem_size);
 #else
-    /* Big-endian: swap each element */
-    for (int64_t i = 0; i < n; i++) {
-        const uint8_t *src = ch->data + i * elem_size;
-        uint8_t *dst = (uint8_t *)out + i * elem_size;
-        for (int b = 0; b < elem_size; b++) dst[b] = src[elem_size - 1 - b];
+    if (elem_size == 1) {
+        memcpy(out, ch->data, (size_t)n);
+    } else {
+        for (int64_t i = 0; i < n; i++) {
+            const uint8_t *src = ch->data + i * elem_size;
+            uint8_t *dst = (uint8_t *)out + i * elem_size;
+            for (int b = 0; b < elem_size; b++) dst[b] = src[elem_size - 1 - b];
+        }
     }
 #endif
     return n;
 }
 
 int64_t meas_channel_read_f32(const MeasChannelData *ch, float    *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_FLOAT32 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = le_bytes_to_f32(ch->data + i * 4);
-    return n;
+    return read_bulk(ch, out, MEAS_FLOAT32, 4, max_count);
 }
 int64_t meas_channel_read_f64(const MeasChannelData *ch, double   *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_FLOAT64 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = le_bytes_to_f64(ch->data + i * 8);
-    return n;
+    return read_bulk(ch, out, MEAS_FLOAT64, 8, max_count);
 }
 int64_t meas_channel_read_i8 (const MeasChannelData *ch, int8_t   *out, int64_t max_count) {
-    return read_fixed(ch, out, MEAS_INT8,   1, max_count); }
+    return read_bulk(ch, out, MEAS_INT8,    1, max_count);
+}
 int64_t meas_channel_read_i16(const MeasChannelData *ch, int16_t  *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_INT16 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = (int16_t)read_le16(ch->data + i * 2);
-    return n;
+    return read_bulk(ch, out, MEAS_INT16,   2, max_count);
 }
 int64_t meas_channel_read_i32(const MeasChannelData *ch, int32_t  *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_INT32 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = (int32_t)read_le32(ch->data + i * 4);
-    return n;
+    return read_bulk(ch, out, MEAS_INT32,   4, max_count);
 }
 int64_t meas_channel_read_i64(const MeasChannelData *ch, int64_t  *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_INT64 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = (int64_t)read_le64(ch->data + i * 8);
-    return n;
+    return read_bulk(ch, out, MEAS_INT64,   8, max_count);
 }
 int64_t meas_channel_read_u8 (const MeasChannelData *ch, uint8_t  *out, int64_t max_count) {
-    return read_fixed(ch, out, MEAS_UINT8,  1, max_count); }
+    return read_bulk(ch, out, MEAS_UINT8,   1, max_count);
+}
 int64_t meas_channel_read_u16(const MeasChannelData *ch, uint16_t *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_UINT16 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = read_le16(ch->data + i * 2);
-    return n;
+    return read_bulk(ch, out, MEAS_UINT16,  2, max_count);
 }
 int64_t meas_channel_read_u32(const MeasChannelData *ch, uint32_t *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_UINT32 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = read_le32(ch->data + i * 4);
-    return n;
+    return read_bulk(ch, out, MEAS_UINT32,  4, max_count);
 }
 int64_t meas_channel_read_u64(const MeasChannelData *ch, uint64_t *out, int64_t max_count) {
-    if (!ch || ch->data_type != MEAS_UINT64 || !out) return -1;
-    int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
-    for (int64_t i = 0; i < n; i++) out[i] = read_le64(ch->data + i * 8);
-    return n;
+    return read_bulk(ch, out, MEAS_UINT64,  8, max_count);
 }
 int64_t meas_channel_read_timestamp(const MeasChannelData *ch, int64_t *out_ns, int64_t max_count) {
     if (!ch || (ch->data_type != MEAS_TIMESTAMP && ch->data_type != MEAS_TIMESPAN) || !out_ns)
         return -1;
     int64_t n = ch->sample_count < max_count ? ch->sample_count : max_count;
+#if !MEAS_BIG_ENDIAN
+    memcpy(out_ns, ch->data, (size_t)n * 8);
+#else
     for (int64_t i = 0; i < n; i++) out_ns[i] = (int64_t)read_le64(ch->data + i * 8);
+#endif
     return n;
 }
 
