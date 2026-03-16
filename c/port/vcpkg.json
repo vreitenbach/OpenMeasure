@@ -1,6 +1,6 @@
 {
   "name": "measflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "High-performance binary measurement data format — C reader/writer library",
   "homepage": "https://github.com/vreitenbach/MeasFlow",
   "license": "MIT",
