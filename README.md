@@ -255,12 +255,9 @@ c/                            C (C99) implementation
 
 ## Roadmap
 
-- [ ] Rust reader/writer
 - [ ] Memory-mapped I/O for large files
-- [x] Performance comparison vs HDF5 (C#, Python, C)
 - [ ] MATLAB integration
 - [ ] Excel plugin
-- [ ] DBC/ARXML import
 
 ## License
 
