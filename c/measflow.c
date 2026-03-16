@@ -644,6 +644,11 @@ MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *na
     return ch;
 }
 
+void meas_channel_set_statistics(MeasChannelWriter *ch, int enable) {
+    if (!ch) return;
+    ch->stats.active = enable ? dtype_supports_stats(ch->dtype) : 0;
+}
+
 int meas_writer_set_compression(MeasWriter *writer, MeasCompression compression) {
     if (!writer || writer->metadata_written) return -1;
     switch (compression) {

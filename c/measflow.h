@@ -508,6 +508,15 @@ MeasGroupWriter *meas_writer_add_group(MeasWriter *writer, const char *name);
 MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *name,
                                            MeasDataType dtype);
 
+/**
+ * Enable or disable automatic statistics tracking for a channel.
+ * By default, statistics (min, max, mean, std-dev, …) are tracked for
+ * numeric types.  Disabling can improve write performance when statistics
+ * are not needed.  Must be called before the first write.
+ * @param enable  Non-zero to enable (default), zero to disable.
+ */
+void meas_channel_set_statistics(MeasChannelWriter *ch, int enable);
+
 /* ── Typed write helpers ─────────────────────────────────────────────────────
  * Array variants append `count` samples from `data[0..count-1]`.
  * Single-value variants append exactly one sample.
