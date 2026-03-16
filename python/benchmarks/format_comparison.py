@@ -127,6 +127,39 @@ class BenchmarkSuite:
             results["HDF5 (h5py)"] = _bench(lambda: self._read_h5(self.h5_file))
         return results
 
+    def bench_read_10ch(self) -> dict:
+        results = {}
+
+        # Prepare 10-channel files
+        meas10 = os.path.join(self.tmp_dir, "r10.meas")
+        with MeasWriter(meas10) as w:
+            g = w.add_group("Data")
+            for c in range(10):
+                ch = g.add_channel(f"Ch{c}", MeasDataType.Float32, track_statistics=False)
+                ch.write_bulk(self.data)
+
+        def read_meas_10ch():
+            with MeasReader(meas10) as r:
+                for c in range(10):
+                    r["Data"][f"Ch{c}"].read_all()
+
+        results["MeasFlow"] = _bench(read_meas_10ch)
+
+        if HAS_H5PY:
+            h510 = os.path.join(self.tmp_dir, "r10.h5")
+            with h5py.File(h510, "w") as f:
+                grp = f.create_group("Data")
+                for c in range(10):
+                    grp.create_dataset(f"Ch{c}", data=self.data)
+
+            def read_h5_10ch():
+                with h5py.File(h510, "r") as f:
+                    for c in range(10):
+                        f["Data"][f"Ch{c}"][:]
+
+            results["HDF5 (h5py)"] = _bench(read_h5_10ch)
+        return results
+
     def bench_streaming_write(self) -> dict:
         results = {}
         chunk_size = self.sample_count // 10
@@ -184,6 +217,7 @@ def main():
             _print_results("Write 1 channel", suite.bench_write_1ch())
             _print_results("Write 10 channels", suite.bench_write_10ch())
             _print_results("Read 1 channel", suite.bench_read_1ch())
+            _print_results("Read 10 channels", suite.bench_read_10ch())
             _print_results("Streaming write", suite.bench_streaming_write())
             _print_results("File size", suite.bench_file_size())
         finally:

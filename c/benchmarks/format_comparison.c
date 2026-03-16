@@ -118,6 +118,25 @@ static void write_measflow_10ch(const char *path, const float *data, int n)
     meas_writer_close(w);
 }
 
+static void read_measflow_10ch(const char *path, const float *data, int n)
+{
+    (void)data;
+    MeasReader *r = meas_reader_open(path);
+    if (!r) return;
+    const MeasGroupData *grp = meas_reader_group_by_name(r, "Data");
+    if (grp) {
+        char name[16];
+        float *buf = (float *)malloc((size_t)n * sizeof(float));
+        for (int c = 0; c < 10; c++) {
+            snprintf(name, sizeof(name), "Ch%d", c);
+            const MeasChannelData *ch = meas_group_channel_by_name(grp, name);
+            if (ch) meas_channel_read_f32(ch, buf, n);
+        }
+        free(buf);
+    }
+    meas_reader_close(r);
+}
+
 static void stream_measflow(const char *path, const float *data, int n)
 {
     MeasWriter *w = meas_writer_open(path);
@@ -160,6 +179,22 @@ static void read_hdf5(const char *path, const float *data, int n)
     H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf);
     free(buf);
     H5Dclose(dset);
+    H5Fclose(file);
+}
+
+static void read_hdf5_10ch(const char *path, const float *data, int n)
+{
+    (void)data;
+    hid_t file = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+    float *buf = (float *)malloc((size_t)n * sizeof(float));
+    char name[32];
+    for (int c = 0; c < 10; c++) {
+        snprintf(name, sizeof(name), "/Data/Ch%d", c);
+        hid_t dset = H5Dopen2(file, name, H5P_DEFAULT);
+        H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, buf);
+        H5Dclose(dset);
+    }
+    free(buf);
     H5Fclose(file);
 }
 
@@ -281,6 +316,22 @@ int main(void)
 #ifdef MEAS_HAVE_HDF5
         print_result("HDF5 (libhdf5)", bench(read_hdf5, h5_path, data, n, 1, 5));
 #endif
+
+        /* Read 10 channels */
+        print_header("Read 10 channels");
+        {
+            char meas10_path[256], h510_path[256];
+            snprintf(meas10_path, sizeof(meas10_path), "bench_%d_10ch.meas", n);
+            snprintf(h510_path, sizeof(h510_path), "bench_%d_10ch.h5", n);
+            write_measflow_10ch(meas10_path, data, n);
+            print_result("MeasFlow", bench(read_measflow_10ch, meas10_path, data, n, 1, 5));
+#ifdef MEAS_HAVE_HDF5
+            write_hdf5_10ch(h510_path, data, n);
+            print_result("HDF5 (libhdf5)", bench(read_hdf5_10ch, h510_path, data, n, 1, 5));
+#endif
+            remove(meas10_path);
+            remove(h510_path);
+        }
 
         /* Streaming write (MeasFlow only — HDF5 has no streaming support) */
         print_header("Streaming write");

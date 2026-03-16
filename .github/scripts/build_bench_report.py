@@ -167,6 +167,7 @@ def main():
         ("Write 1 channel", "Write 1ch"),
         ("Write 10 channels", "Write 10ch"),
         ("Read 1 channel", "Read 1ch"),
+        ("Read 10 channels", "Read 10ch"),
     ]
     hdf5_table_rows = []
     for section_key, label in hdf5_ops:

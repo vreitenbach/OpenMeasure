@@ -167,6 +167,43 @@ public static class CiRunner
                 });
                 Console.WriteLine($"  HDF5 (PureHDF):    {r.MedianMs,8:F2} ms");
 
+                // ── Read 10 channels ──
+                PrintSection("Read 10 channels");
+                {
+                    var meas10Path = Path.Combine(tmpDir, "r10.meas");
+                    using (var w10 = MeasFile.CreateWriter(meas10Path))
+                    {
+                        var g10 = w10.AddGroup("Data");
+                        for (int c = 0; c < 10; c++)
+                        {
+                            var ch10 = g10.AddChannel<float>($"Ch{c}", trackStatistics: false);
+                            ch10.Write(data.AsSpan());
+                        }
+                    }
+                    r = Bench(() =>
+                    {
+                        using var reader = MeasFile.OpenRead(meas10Path);
+                        for (int c = 0; c < 10; c++)
+                            reader["Data"][$"Ch{c}"].ReadAll<float>();
+                    });
+                    Console.WriteLine($"  MeasFlow:          {r.MedianMs,8:F2} ms");
+
+                    var h510Path = Path.Combine(tmpDir, "r10.h5");
+                    {
+                        var group10 = new H5Group();
+                        for (int c = 0; c < 10; c++)
+                            group10[$"Ch{c}"] = data;
+                        new H5File { ["Data"] = group10 }.Write(h510Path);
+                    }
+                    r = Bench(() =>
+                    {
+                        using var file = H5File.OpenRead(h510Path);
+                        for (int c = 0; c < 10; c++)
+                            file.Dataset($"/Data/Ch{c}").Read<float[]>();
+                    });
+                    Console.WriteLine($"  HDF5 (PureHDF):    {r.MedianMs,8:F2} ms");
+                }
+
                 // ── Streaming write (MeasFlow only — HDF5 has no streaming support) ──
                 PrintSection("Streaming write");
                 r = Bench(() =>
