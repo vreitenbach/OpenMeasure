@@ -364,25 +364,19 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
     {
         if (values.IsEmpty) return;
 
-        // Pre-allocate to avoid repeated List<T> growth copies
-        int needed = _buffer.Count + values.Length;
+        // Bulk copy via CollectionsMarshal (no per-element Add overhead)
+        int startCount = _buffer.Count;
+        int needed = startCount + values.Length;
         if (_buffer.Capacity < needed)
             _buffer.Capacity = needed;
+        CollectionsMarshal.SetCount(_buffer, needed);
+        values.CopyTo(CollectionsMarshal.AsSpan(_buffer).Slice(startCount));
 
+        // Update statistics from the span directly (avoids List indexing)
         if (_trackStats)
         {
             foreach (var v in values)
-            {
-                _buffer.Add(v);
                 _stats.Update(NumericConverter.ToDouble(v));
-            }
-        }
-        else
-        {
-            // Fast path: bulk copy via CollectionsMarshal (no per-element overhead)
-            int startCount = _buffer.Count;
-            CollectionsMarshal.SetCount(_buffer, needed);
-            values.CopyTo(CollectionsMarshal.AsSpan(_buffer).Slice(startCount));
         }
     }
 

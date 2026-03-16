@@ -17,6 +17,7 @@ import time
 
 import numpy as np
 
+from measflow.types import MeasDataType
 from measflow.writer import MeasWriter
 from measflow.reader import MeasReader
 
@@ -54,7 +55,7 @@ def main():
             def write_fn():
                 with MeasWriter(path) as w:
                     g = w.add_group("Data")
-                    ch = g.add_channel("Signal")
+                    ch = g.add_channel("Signal", MeasDataType.Float32)
                     ch.write_bulk(data)
 
             r = _bench(write_fn)
@@ -66,7 +67,7 @@ def main():
                 chunk = n // 10
                 with MeasWriter(p) as w:
                     g = w.add_group("Data")
-                    ch = g.add_channel("Signal")
+                    ch = g.add_channel("Signal", MeasDataType.Float32)
                     for i in range(10):
                         ch.write_bulk(data[i * chunk : (i + 1) * chunk])
                         w.flush()

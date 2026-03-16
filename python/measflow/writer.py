@@ -59,6 +59,50 @@ class _StatisticsAccumulator:
         self._mean += delta / self._count
         self._m2 += delta * (value - self._mean)
 
+    def update_bulk(self, arr: np.ndarray) -> None:
+        """Batch-update statistics from a numpy array (much faster than per-element)."""
+        if len(arr) == 0:
+            return
+        n = len(arr)
+        arr_f64 = arr.astype(np.float64, copy=False)
+        if self._count == 0:
+            self._first = float(arr_f64[0])
+        self._last = float(arr_f64[-1])
+
+        arr_min = float(arr_f64.min())
+        arr_max = float(arr_f64.max())
+        arr_sum = float(arr_f64.sum())
+
+        if self._count == 0:
+            self._min = arr_min
+            self._max = arr_max
+        else:
+            if arr_min < self._min:
+                self._min = arr_min
+            if arr_max > self._max:
+                self._max = arr_max
+
+        # Combine running mean/variance with batch using parallel algorithm
+        old_count = self._count
+        new_count = old_count + n
+        arr_mean = arr_sum / n
+
+        delta = arr_mean - self._mean
+        new_mean = self._mean + delta * n / new_count
+
+        # Variance of the new batch
+        if n > 1:
+            arr_m2 = float(np.sum((arr_f64 - arr_mean) ** 2))
+        else:
+            arr_m2 = 0.0
+
+        # Combine M2 values (parallel Welford)
+        self._m2 = self._m2 + arr_m2 + delta * delta * old_count * n / new_count
+
+        self._mean = new_mean
+        self._sum += arr_sum
+        self._count = new_count
+
     def write_to_properties(self, props: dict[str, Any]) -> None:
         # Population variance: M2 / count (§13). When count <= 1, M2 == 0 so variance == 0.
         variance = self._m2 / self._count if self._count > 0 else 0.0
@@ -91,7 +135,9 @@ class ChannelWriter:
         self.data_type = dtype
         self.properties: dict[str, Any] = {}
         self._global_index: int = 0  # assigned when metadata is written
-        self._samples: list = []
+        self._buffers: list[bytes] = []  # pre-serialized byte chunks
+        self._sample_count: int = 0
+        self._samples: list = []  # only used for non-numpy types (Binary, String)
         self._stats: _StatisticsAccumulator | None = (
             _StatisticsAccumulator() if is_numeric(dtype) else None
         )
@@ -99,51 +145,85 @@ class ChannelWriter:
     def write(self, value: Any) -> None:
         """Append a single sample."""
         self._samples.append(value)
+        self._sample_count += 1
         if self._stats is not None:
             self._stats.update(float(value))
 
     def write_bulk(self, values: Any) -> None:
-        """Append an array or iterable of samples."""
-        if self._stats is not None:
-            for v in values:
-                self._samples.append(v)
-                self._stats.update(float(v))
+        """Append an array or iterable of samples.
+
+        For numpy arrays with numeric types, the data is serialized immediately
+        to avoid storing Python objects in a list. This is the fast path.
+        """
+        dt = self.data_type
+        if isinstance(values, np.ndarray) and dt in _TYPE_NUMPY:
+            # Fast path: serialize numpy array directly to bytes
+            arr = np.asarray(values, dtype=_TYPE_NUMPY[dt])
+            self._buffers.append(arr.tobytes())
+            self._sample_count += len(arr)
+            if self._stats is not None:
+                self._stats.update_bulk(arr)
+        elif isinstance(values, np.ndarray) and dt == MeasDataType.Timestamp:
+            arr = np.asarray(values, dtype="<i8")
+            self._buffers.append(arr.tobytes())
+            self._sample_count += len(arr)
         else:
-            self._samples.extend(values)
+            # Slow path: per-element (Binary, String, or non-array input)
+            if self._stats is not None:
+                for v in values:
+                    self._samples.append(v)
+                    self._sample_count += 1
+                    self._stats.update(float(v))
+            else:
+                for v in values:
+                    self._samples.append(v)
+                    self._sample_count += 1
 
     @property
     def sample_count(self) -> int:
-        return len(self._samples)
+        return self._sample_count
 
     def _to_bytes(self) -> bytes:
-        if not self._samples:
+        """Serialize all buffered data to bytes."""
+        parts = list(self._buffers)  # pre-serialized chunks
+
+        # Serialize any remaining per-element samples
+        if self._samples:
+            dt = self.data_type
+            if dt == MeasDataType.Timestamp:
+                ns = [
+                    v.nanoseconds if isinstance(v, MeasTimestamp) else int(v)
+                    for v in self._samples
+                ]
+                parts.append(np.array(ns, dtype="<i8").tobytes())
+            elif dt in _TYPE_NUMPY:
+                parts.append(np.array(self._samples, dtype=_TYPE_NUMPY[dt]).tobytes())
+            elif dt == MeasDataType.Binary:
+                frame_parts = []
+                for v in self._samples:
+                    b = bytes(v)
+                    frame_parts.append(struct.pack("<i", len(b)))
+                    frame_parts.append(b)
+                parts.append(b"".join(frame_parts))
+            elif dt == MeasDataType.Utf8String:
+                frame_parts = []
+                for v in self._samples:
+                    encoded = v.encode("utf-8") if isinstance(v, str) else bytes(v)
+                    frame_parts.append(struct.pack("<i", len(encoded)))
+                    frame_parts.append(encoded)
+                parts.append(b"".join(frame_parts))
+            else:
+                raise ValueError(f"Cannot serialize channel type {dt!r}")
+
+        if not parts:
             return b""
-        dt = self.data_type
-        if dt == MeasDataType.Timestamp:
-            ns = [
-                v.nanoseconds if isinstance(v, MeasTimestamp) else int(v)
-                for v in self._samples
-            ]
-            return np.array(ns, dtype="<i8").tobytes()
-        if dt in _TYPE_NUMPY:
-            return np.array(self._samples, dtype=_TYPE_NUMPY[dt]).tobytes()
-        if dt == MeasDataType.Binary:
-            # §7: each sample is [int32: frameByteLength][bytes: data]
-            parts = []
-            for v in self._samples:
-                b = bytes(v)
-                parts.append(struct.pack("<i", len(b)))
-                parts.append(b)
-            return b"".join(parts)
-        if dt == MeasDataType.Utf8String:
-            # §7: each sample is [int32: byteLength][UTF-8 bytes]
-            parts = []
-            for v in self._samples:
-                encoded = v.encode("utf-8") if isinstance(v, str) else bytes(v)
-                parts.append(struct.pack("<i", len(encoded)))
-                parts.append(encoded)
-            return b"".join(parts)
-        raise ValueError(f"Cannot serialize channel type {dt!r}")
+        return b"".join(parts) if len(parts) > 1 else parts[0]
+
+    def _clear(self) -> None:
+        """Clear all buffered data after flush."""
+        self._buffers.clear()
+        self._samples.clear()
+        # Keep _sample_count for statistics (reset is per-flush tracking not needed)
 
     def _to_channel_def(self, with_stats: bool = False) -> ChannelDef:
         props = {
@@ -230,13 +310,13 @@ class MeasWriter:
             (ch._global_index, ch)
             for g in self._groups
             for ch in g._channels
-            if ch._samples
+            if ch._buffers or ch._samples
         ]
         if not pending:
             return
         self._write_data_segment(pending)
         for _, ch in pending:
-            ch._samples = []
+            ch._clear()
         self._file.flush()
 
     def close(self) -> None:

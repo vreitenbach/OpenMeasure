@@ -130,7 +130,7 @@ static void test_write_and_read_int32(void) {
     TEST("write_and_read_int32");
     const char *path = tmp_file("int32.meas");
 
-    int32_t input[] = {-1000, 0, 42, 2147483647, -2147483648};
+    int32_t input[] = {-1000, 0, 42, 2147483647, (-2147483647 - 1)};
     int N = 5;
 
     MeasWriter *w = meas_writer_open(path);

@@ -15,6 +15,7 @@ import time
 
 import numpy as np
 
+from measflow.types import MeasDataType
 from measflow.writer import MeasWriter
 from measflow.reader import MeasReader
 
@@ -64,7 +65,7 @@ class BenchmarkSuite:
     def _write_measflow(self, path: str, data: np.ndarray):
         with MeasWriter(path) as w:
             g = w.add_group("Data")
-            ch = g.add_channel("Signal")
+            ch = g.add_channel("Signal", MeasDataType.Float32)
             ch.write_bulk(data)
 
     def _read_measflow(self, path: str) -> np.ndarray:
@@ -103,7 +104,7 @@ class BenchmarkSuite:
             with MeasWriter(p) as w:
                 g = w.add_group("Data")
                 for c in range(10):
-                    ch = g.add_channel(f"Ch{c}")
+                    ch = g.add_channel(f"Ch{c}", MeasDataType.Float32)
                     ch.write_bulk(self.data)
 
         results["MeasFlow"] = _bench(write_meas_10ch)
@@ -134,7 +135,7 @@ class BenchmarkSuite:
             p = os.path.join(self.tmp_dir, "stream.meas")
             with MeasWriter(p) as w:
                 g = w.add_group("Data")
-                ch = g.add_channel("Signal")
+                ch = g.add_channel("Signal", MeasDataType.Float32)
                 for i in range(10):
                     ch.write_bulk(self.data[i * chunk_size : (i + 1) * chunk_size])
                     w.flush()

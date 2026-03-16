@@ -1,8 +1,14 @@
 {
   "name": "measflow",
-  "version-string": "0.1.0",
+  "version-string": "0.2.0",
   "dependencies": [
     "lz4",
     "zstd"
-  ]
+  ],
+  "features": {
+    "benchmarks": {
+      "description": "HDF5 for format comparison benchmarks",
+      "dependencies": ["hdf5"]
+    }
+  }
 }
