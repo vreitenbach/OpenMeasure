@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Build a clean benchmark report from CI outputs.
 
+All three language bindings (C#, Python, C) output the same standardized
+plain-text format, making parsing trivial.
+
 Reads:
-  - BenchmarkDotNet markdown artifacts (csharp_xlang.md, csharp_fmtcmp.md)
-  - Python benchmark stdout (python_xlang.txt, python_fmtcmp.txt)
-  - C benchmark stdout (c_xlang.txt, c_fmtcmp.txt)
+  - csharp_xlang.txt, csharp_fmtcmp.txt
+  - python_xlang.txt, python_fmtcmp.txt
+  - c_xlang.txt, c_fmtcmp.txt
 
 Writes: bench_report.md
 """
@@ -17,247 +20,219 @@ def read(name: str) -> str:
     return p.read_text(errors="replace").strip() if p.exists() else ""
 
 
-def extract_bdn_table(md: str) -> str:
-    """Extract just the markdown table from BenchmarkDotNet GitHub exporter output."""
-    lines = []
-    for line in md.splitlines():
-        if line.startswith("|"):
-            lines.append(line)
-    return "\n".join(lines)
+# ── Unified parser ────────────────────────────────────────────────────────────
 
 
-def extract_overview_row(py_txt: str, c_txt: str, cs_md: str, samples: str = "100000") -> dict:
-    """Extract write/read/stream times for the overview table."""
-    row = {"Write": {}, "Read": {}, "Stream": {}}
+def parse_cross_language(text: str) -> dict:
+    """Parse cross-language benchmark output.
 
-    # Python — only take values from the 100K section (first occurrence)
-    in_target = False
-    py_found = set()
-    for line in py_txt.splitlines():
-        if f"{int(samples):,}" in line or f"{samples}" in line:
-            in_target = True
-            py_found = set()
-        elif re.search(r"\d{1,3}(,\d{3})+\s+samples", line) and in_target:
-            break  # moved to next sample count section
-        if in_target:
-            m = re.match(r"\s+(Write|Read|Stream)\s+\(Python\):\s+([\d.]+)\s+ms", line)
-            if m and m.group(1) not in py_found:
-                op = m.group(1)
-                if op in row:
-                    row[op]["Python"] = float(m.group(2))
-                    py_found.add(op)
+    Returns: {sample_count: {"Write": ms, "Stream": ms, "Read": ms, "FileSize": kb}}
+    """
+    result = {}
+    current_samples = None
 
-    # C — only take values from the 100K section (first occurrence)
-    in_target = False
-    c_found = set()
-    for line in c_txt.splitlines():
-        if samples in line:
-            in_target = True
-            c_found = set()
-        elif re.search(r"\d{4,}\s+samples", line) and in_target:
-            break
-        if in_target:
-            m = re.match(r"\s+(Write|Read|Stream)\s+\(C\):\s+([\d.]+)\s+ms", line)
-            if m and m.group(1) not in c_found:
-                op = m.group(1)
-                if op in row:
-                    row[op]["C"] = float(m.group(2))
-                    c_found.add(op)
-
-    # C# from BenchmarkDotNet table
-    for line in cs_md.splitlines():
-        if not line.startswith("|") or "Method" in line or "---" in line:
+    for line in text.splitlines():
+        # Header: "Cross-language benchmarks (C#) -- 100000 samples"
+        m = re.search(r"--\s+(\d+)\s+samples", line)
+        if m:
+            current_samples = int(m.group(1))
+            result[current_samples] = {}
             continue
-        if samples not in line:
+
+        if current_samples is None:
             continue
-        cols = [c.strip() for c in line.split("|") if c.strip()]
-        if len(cols) < 3:
+
+        # "  Write (C#):        12.34 ms"
+        m = re.match(r"\s+(Write|Stream|Read)\s+\(.+?\):\s+([\d.]+)\s+ms", line)
+        if m:
+            result[current_samples][m.group(1)] = float(m.group(2))
             continue
-        desc = cols[0].strip("'")
-        # Find the Mean column (first value with us/ms/ns unit)
-        for col in cols[1:]:
-            m = re.match(r"([\d,.]+)\s+(us|ms|ns)", col)
-            if m:
-                val = float(m.group(1).replace(",", ""))
-                unit = m.group(2)
-                ms = val / 1000 if unit == "us" else val if unit == "ms" else val / 1e6
-                if "Write" == desc:
-                    row["Write"]["C#"] = ms
-                elif "Read" == desc:
-                    row["Read"]["C#"] = ms
-                elif "Stream" in desc:
-                    row["Stream"]["C#"] = ms
-                break
 
-    return row
+        # "  File size:         390.7 KB"
+        m = re.match(r"\s+File size:\s+([\d.]+)\s+KB", line)
+        if m:
+            result[current_samples]["FileSize"] = float(m.group(1))
+
+    return result
 
 
-def extract_hdf5_comparison(py_txt: str, c_txt: str, cs_md: str) -> list:
-    """Extract MeasFlow vs HDF5 write times for the overview."""
-    rows = []
+def parse_format_comparison(text: str) -> dict:
+    """Parse format comparison benchmark output.
 
-    # C# from BenchmarkDotNet format comparison
-    cs_mf = cs_hdf = None
-    for line in cs_md.splitlines():
-        if not line.startswith("|") or "Method" in line or "---" in line:
+    Returns: {sample_count: {section: {label: {"ms": float} or {"kb": float}}}}
+    """
+    result = {}
+    current_samples = None
+    current_section = None
+
+    for line in text.splitlines():
+        # Header: "Format comparison (C#) -- 100000 samples"
+        m = re.search(r"--\s+(\d+)\s+samples", line)
+        if m:
+            current_samples = int(m.group(1))
+            result[current_samples] = {}
+            current_section = None
             continue
-        if "100000" not in line:
+
+        if current_samples is None:
             continue
-        if "Write 1ch" not in line:
+
+        # Skip dashed separator lines
+        if re.match(r"-{10,}", line.strip()):
             continue
-        cols = [c.strip() for c in line.split("|") if c.strip()]
-        desc = cols[0].strip("'")
-        for col in cols[1:]:
-            m = re.match(r"([\d,.]+)\s+(us|ms|ns)", col)
-            if m:
-                val = float(m.group(1).replace(",", ""))
-                unit = m.group(2)
-                ms = val / 1000 if unit == "us" else val if unit == "ms" else val / 1e6
-                if "HDF5" not in desc and "Raw" not in desc:
-                    cs_mf = ms
-                elif "HDF5" in desc:
-                    cs_hdf = ms
-                break
-    if cs_mf and cs_hdf:
-        rows.append(("C#", cs_mf, cs_hdf))
 
-    # Python — only from 100K section
-    in_100k = False
-    section = ""
-    py_mf = py_hdf = None
-    for line in py_txt.splitlines():
-        if "100,000" in line or "100000" in line:
-            in_100k = True
-        elif re.search(r"1[,.]000[,.]000", line):
-            in_100k = False
-        if not in_100k:
+        # Section title (indented text line without a colon-number pattern)
+        m = re.match(r"^\s{2}(\w.+)$", line)
+        if m and not re.search(r":\s+[\d.]", line):
+            title = m.group(1).strip()
+            if title not in result[current_samples]:
+                current_section = title
+                result[current_samples][current_section] = {}
             continue
-        if "Write 1 channel" in line:
-            section = "write1"
-            py_mf = py_hdf = None
-        elif "Write 10" in line or "Read" in line or "Stream" in line or "File size" in line:
-            if section == "write1" and py_mf and py_hdf:
-                break
-            section = ""
-        if section == "write1":
-            m = re.match(r"\s+MeasFlow\s+([\d.]+)\s+ms", line)
-            if m:
-                py_mf = float(m.group(1))
-            m = re.match(r"\s+HDF5.*?\s+([\d.]+)\s+ms", line)
-            if m:
-                py_hdf = float(m.group(1))
-    if py_mf and py_hdf:
-        rows.append(("Python", py_mf, py_hdf))
 
-    # C
-    section = ""
-    c_mf = c_hdf = None
-    for line in c_txt.splitlines():
-        if "Write 1ch" in line:
-            section = "write1"
-            c_mf = c_hdf = None
-        elif re.match(r"\s*-{10}", line):
-            section = ""
-        if section == "write1":
-            m = re.match(r"\s+MeasFlow:\s+([\d.]+)\s+ms", line)
-            if m:
-                c_mf = float(m.group(1))
-            m = re.match(r"\s+HDF5.*?:\s+([\d.]+)\s+ms", line)
-            if m:
-                c_hdf = float(m.group(1))
-    if c_mf and c_hdf:
-        rows.append(("C", c_mf, c_hdf))
+        if current_section is None:
+            continue
 
-    return rows
+        # Result: "  MeasFlow:          12.34 ms"
+        m = re.match(r"\s+(.+?):\s+([\d.]+)\s+ms", line)
+        if m:
+            result[current_samples][current_section][m.group(1).strip()] = {"ms": float(m.group(2))}
+            continue
+
+        # Size: "  MeasFlow:          390.7 KB"
+        m = re.match(r"\s+(.+?):\s+([\d.]+)\s+KB", line)
+        if m:
+            result[current_samples][current_section][m.group(1).strip()] = {"kb": float(m.group(2))}
+
+    return result
 
 
-def fmt(ms: float) -> str:
+# ── Formatting helpers ────────────────────────────────────────────────────────
+
+
+def fmt_ms(ms: float) -> str:
     if ms < 1:
-        return f"{ms * 1000:.0f} μs"
+        return f"{ms * 1000:.0f} \u03bcs"
     return f"{ms:.1f} ms"
 
 
-def main():
-    # Read inputs
-    cs_xlang_md = read("csharp_xlang.md")
-    cs_fmtcmp_md = read("csharp_fmtcmp.md")
-    cs_write_md = read("csharp_write.md")
-    cs_read_md = read("csharp_read.md")
-    cs_filesize_md = read("csharp_filesize.md")
-    py_xlang = read("python_xlang.txt")
-    py_fmtcmp = read("python_fmtcmp.txt")
-    c_xlang = read("c_xlang.txt")
-    c_fmtcmp = read("c_fmtcmp.txt")
+def fmt_kb(kb: float) -> str:
+    if kb >= 1024:
+        return f"{kb / 1024:.1f} MB"
+    return f"{kb:.0f} KB"
 
-    cs_xlang_table = extract_bdn_table(cs_xlang_md)
-    cs_fmtcmp_table = extract_bdn_table(cs_fmtcmp_md)
-    cs_write_table = extract_bdn_table(cs_write_md)
-    cs_read_table = extract_bdn_table(cs_read_md)
-    cs_filesize_table = extract_bdn_table(cs_filesize_md)
+
+# ── Report builder ────────────────────────────────────────────────────────────
+
+
+def main():
+    # Read all inputs
+    inputs = {
+        "C#": (read("csharp_xlang.txt"), read("csharp_fmtcmp.txt")),
+        "Python": (read("python_xlang.txt"), read("python_fmtcmp.txt")),
+        "C": (read("c_xlang.txt"), read("c_fmtcmp.txt")),
+    }
+
+    # Parse
+    xlang = {lang: parse_cross_language(txt) for lang, (txt, _) in inputs.items() if txt}
+    fmtcmp = {lang: parse_format_comparison(txt) for lang, (_, txt) in inputs.items() if txt}
+
+    missing = [lang for lang, (x, f) in inputs.items() if not x and not f]
+    found = [lang for lang, (x, f) in inputs.items() if x or f]
 
     out = []
     out.append("## Benchmark Results\n")
 
-    # ── Overview: Cross-Language ──
-    overview = extract_overview_row(py_xlang, c_xlang, cs_xlang_table)
-    has_overview = any(langs for langs in overview.values())
+    if missing:
+        out.append(f"> \u26a0\ufe0f Missing data for: {', '.join(missing)}\n")
 
-    if has_overview:
-        out.append("### Overview — 100K float32 samples\n")
+    # ── Overview: Cross-Language (100K) ──
+    n = 100_000
+    has_xlang = any(n in data for data in xlang.values())
+
+    if has_xlang:
+        out.append(f"### Cross-Language \u2014 {n:,} float32 samples\n")
         out.append("| Operation | C | C# | Python |")
         out.append("|---|---|---|---|")
         for op, label in [("Write", "Write"), ("Read", "Read"), ("Stream", "Streaming Write")]:
-            langs = overview[op]
-            c = fmt(langs["C"]) if "C" in langs else "—"
-            cs = fmt(langs["C#"]) if "C#" in langs else "—"
-            py = fmt(langs["Python"]) if "Python" in langs else "—"
+            c = fmt_ms(xlang["C"][n][op]) if "C" in xlang and n in xlang["C"] and op in xlang["C"][n] else "\u2014"
+            cs = fmt_ms(xlang["C#"][n][op]) if "C#" in xlang and n in xlang["C#"] and op in xlang["C#"][n] else "\u2014"
+            py = fmt_ms(xlang["Python"][n][op]) if "Python" in xlang and n in xlang["Python"] and op in xlang["Python"][n] else "\u2014"
             out.append(f"| {label} | {c} | {cs} | {py} |")
         out.append("")
 
-    # ── Overview: vs HDF5 ──
-    hdf5_rows = extract_hdf5_comparison(py_fmtcmp, c_fmtcmp, cs_fmtcmp_table)
+    # ── Overview: vs HDF5 (100K) ──
+    hdf5_rows = []
+    for lang in ["C", "C#", "Python"]:
+        if lang not in fmtcmp or n not in fmtcmp[lang]:
+            continue
+        sections = fmtcmp[lang][n]
+        write_section = sections.get("Write 1 channel", {})
+        mf_entry = next((v for k, v in write_section.items() if "MeasFlow" in k), None)
+        hdf_entry = next((v for k, v in write_section.items() if "HDF5" in k), None)
+        if mf_entry and hdf_entry and "ms" in mf_entry and "ms" in hdf_entry:
+            hdf5_rows.append((lang, mf_entry["ms"], hdf_entry["ms"]))
+
     if hdf5_rows:
-        out.append("### vs HDF5 — Write 1ch, 100K samples\n")
+        out.append(f"### vs HDF5 \u2014 Write 1ch, {n:,} samples\n")
         out.append("| Language | MeasFlow | HDF5 | Ratio |")
         out.append("|---|---|---|---|")
         for lang, mf, hdf in hdf5_rows:
             ratio = mf / hdf if hdf > 0 else 0
-            icon = "🟢" if ratio <= 1.5 else "🟡" if ratio <= 3 else "🔴"
-            out.append(f"| {lang} | {fmt(mf)} | {fmt(hdf)} | {icon} {ratio:.1f}x |")
+            icon = "\U0001f7e2" if ratio <= 1.5 else "\U0001f7e1" if ratio <= 3 else "\U0001f534"
+            out.append(f"| {lang} | {fmt_ms(mf)} | {fmt_ms(hdf)} | {icon} {ratio:.1f}x |")
         out.append("")
 
-    out.append("> _Numbers are indicative — CI runner performance varies between runs._\n")
+    # ── File size comparison (100K) ──
+    size_rows = []
+    for lang in ["C", "C#", "Python"]:
+        if lang not in fmtcmp or n not in fmtcmp[lang]:
+            continue
+        size_section = fmtcmp[lang][n].get("File size", {})
+        mf_entry = next((v for k, v in size_section.items() if "MeasFlow" in k), None)
+        hdf_entry = next((v for k, v in size_section.items() if "HDF5" in k), None)
+        raw_entry = next((v for k, v in size_section.items() if "Raw" in k.lower() or "raw" in k), None)
+        if mf_entry and "kb" in mf_entry:
+            size_rows.append((lang, mf_entry.get("kb"), hdf_entry.get("kb") if hdf_entry else None, raw_entry.get("kb") if raw_entry else None))
 
-    # ── Detailed results ──
+    if size_rows:
+        out.append(f"### File Size \u2014 1ch, {n:,} samples\n")
+        out.append("| Language | MeasFlow | HDF5 | Raw |")
+        out.append("|---|---|---|---|")
+        for lang, mf, hdf, raw in size_rows:
+            mf_s = fmt_kb(mf) if mf else "\u2014"
+            hdf_s = fmt_kb(hdf) if hdf else "\u2014"
+            raw_s = fmt_kb(raw) if raw else "\u2014"
+            out.append(f"| {lang} | {mf_s} | {hdf_s} | {raw_s} |")
+        out.append("")
+
+    out.append("> _Numbers are indicative \u2014 CI runner performance varies between runs._\n")
+
+    # ── Detailed results (collapsible) ──
     out.append("### Detailed Results\n")
 
     sections = [
-        ("C# Cross-Language", cs_xlang_table, False),
-        ("C# Write Benchmarks", cs_write_table, False),
-        ("C# Read Benchmarks", cs_read_table, False),
-        ("C# File Size", cs_filesize_table, False),
-        ("C# vs PureHDF", cs_fmtcmp_table, False),
-        ("Python Cross-Language", py_xlang, True),
-        ("Python vs h5py", py_fmtcmp, True),
-        ("C Cross-Language", c_xlang, True),
-        ("C vs libhdf5", c_fmtcmp, True),
+        ("C# Cross-Language", inputs["C#"][0]),
+        ("C# Format Comparison", inputs["C#"][1]),
+        ("Python Cross-Language", inputs["Python"][0]),
+        ("Python Format Comparison", inputs["Python"][1]),
+        ("C Cross-Language", inputs["C"][0]),
+        ("C Format Comparison", inputs["C"][1]),
     ]
 
-    for title, content, use_code_fence in sections:
+    for title, content in sections:
         if not content:
             continue
         out.append(f"<details><summary>{title}</summary>\n")
-        if use_code_fence:
-            out.append("```")
-            out.append(content)
-            out.append("```")
-        else:
-            out.append(content)
+        out.append("```")
+        out.append(content)
+        out.append("```")
         out.append("\n</details>\n")
 
     report = "\n".join(out)
     Path("bench_report.md").write_text(report)
     print(f"Report written ({len(report)} bytes)")
+    print(f"Languages with data: {', '.join(found) if found else 'none'}")
 
 
 if __name__ == "__main__":

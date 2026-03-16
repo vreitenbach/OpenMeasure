@@ -144,10 +144,18 @@ class ChannelWriter:
 
     def write(self, value: Any) -> None:
         """Append a single sample."""
-        self._samples.append(value)
         self._sample_count += 1
         if self._stats is not None:
             self._stats.update(float(value))
+        dt = self.data_type
+        if dt in _TYPE_NUMPY:
+            # Serialize immediately to _buffers to preserve ordering with write_bulk
+            self._buffers.append(np.array(value, dtype=_TYPE_NUMPY[dt]).tobytes())
+        elif dt == MeasDataType.Timestamp:
+            ns = value.nanoseconds if isinstance(value, MeasTimestamp) else int(value)
+            self._buffers.append(struct.pack("<q", ns))
+        else:
+            self._samples.append(value)
 
     def write_bulk(self, values: Any) -> None:
         """Append an array or iterable of samples.

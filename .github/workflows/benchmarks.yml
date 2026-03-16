@@ -41,23 +41,19 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
 
-      # ── Run ALL C# benchmarks at once ──────────────────────────────────
-      - name: C# benchmarks (all suites)
+      # ── C# benchmarks (plain-text CI mode) ────────────────────────────
+      - name: C# cross-language benchmark
         run: |
           dotnet run --project csharp/benchmarks/MeasFlow.Benchmarks/MeasFlow.Benchmarks.csproj \
-            -c Release -- --exporters GitHub
-          # Find BenchmarkDotNet artifacts (path varies by environment)
-          find . -name "*-report-github.md" -path "*/BenchmarkDotNet*" | while read f; do
-            name=$(basename "$f")
-            case "$name" in
-              *CrossLanguage*)       cp "$f" csharp_xlang.md ;;
-              *FormatComparison*)    cp "$f" csharp_fmtcmp.md ;;
-              *WriteBenchmarks*)     cp "$f" csharp_write.md ;;
-              *ReadBenchmarks*)      cp "$f" csharp_read.md ;;
-              *FileSizeBenchmarks*)  cp "$f" csharp_filesize.md ;;
-            esac
-          done
-          echo "Copied:" && ls -la csharp_*.md 2>/dev/null || echo "No .md files found"
+            -c Release -- --ci > csharp_all.txt 2>&1
+          # Split into cross-language and format comparison files
+          python3 -c "
+          text = open('csharp_all.txt').read()
+          parts = text.split('Format comparison')
+          open('csharp_xlang.txt', 'w').write(parts[0])
+          if len(parts) > 1:
+              open('csharp_fmtcmp.txt', 'w').write('Format comparison' + ''.join(parts[1:]))
+          "
         continue-on-error: true
 
       # ── Python benchmarks ──────────────────────────────────────────────
@@ -83,12 +79,6 @@ jobs:
       # ── Build report ───────────────────────────────────────────────────
       - name: Build benchmark report
         run: python .github/scripts/build_bench_report.py
-
-      - name: Upload benchmark report
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-report
-          path: bench_report.md
 
       - name: Comment on PR
         # Silently skip for fork PRs (read-only GITHUB_TOKEN)

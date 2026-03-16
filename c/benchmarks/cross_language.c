@@ -138,7 +138,7 @@ int main(void)
         snprintf(path, sizeof(path), "c_%d.meas", n);
 
         printf("\n============================================================\n");
-        printf("  Cross-language MeasFlow benchmarks (C) -- %d samples\n", n);
+        printf("  Cross-language benchmarks (C) -- %d samples\n", n);
         printf("============================================================\n");
 
         BenchResult r;

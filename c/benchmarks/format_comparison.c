@@ -169,24 +169,23 @@ static long file_size(const char *path)
 
 /* ── Print helpers ──────────────────────────────────────────────────────── */
 
-static void print_header(const char *title, int n)
+static void print_header(const char *title)
 {
     printf("\n");
     for (int i = 0; i < 60; i++) putchar('-');
-    printf("\n  %s  (%d samples)\n", title, n);
+    printf("\n  %s\n", title);
     for (int i = 0; i < 60; i++) putchar('-');
     printf("\n");
 }
 
 static void print_result(const char *label, BenchResult r)
 {
-    printf("  %-30s %8.2f ms (min: %.2f, max: %.2f)\n",
-           label, r.median_ms, r.min_ms, r.max_ms);
+    printf("  %s: %8.2f ms\n", label, r.median_ms);
 }
 
 static void print_size(const char *label, long bytes)
 {
-    printf("  %-30s %8.1f KB\n", label, bytes / 1024.0);
+    printf("  %s: %8.1f KB\n", label, bytes / 1024.0);
 }
 
 /* ── Main ───────────────────────────────────────────────────────────────── */
@@ -211,8 +210,12 @@ int main(void)
         snprintf(h5_path, sizeof(h5_path), "bench_%d.h5", n);
         snprintf(raw_path, sizeof(raw_path), "bench_%d.bin", n);
 
+        printf("\n============================================================\n");
+        printf("  Format comparison (C) -- %d samples\n", n);
+        printf("============================================================\n");
+
         /* Write benchmarks */
-        print_header("Write 1 channel", n);
+        print_header("Write 1 channel");
         print_result("MeasFlow", bench(write_measflow, meas_path, data, n, 1, 5));
 #ifdef MEAS_HAVE_HDF5
         print_result("HDF5 (libhdf5)", bench(write_hdf5, h5_path, data, n, 1, 5));
@@ -224,14 +227,14 @@ int main(void)
         write_hdf5(h5_path, data, n);
 #endif
 
-        print_header("Read 1 channel", n);
+        print_header("Read 1 channel");
         print_result("MeasFlow", bench(read_measflow, meas_path, data, n, 1, 5));
 #ifdef MEAS_HAVE_HDF5
         print_result("HDF5 (libhdf5)", bench(read_hdf5, h5_path, data, n, 1, 5));
 #endif
 
         /* Streaming write */
-        print_header("Streaming write", n);
+        print_header("Streaming write");
         print_result("MeasFlow (10 flushes)", bench(stream_measflow, meas_path, data, n, 1, 5));
 #ifdef MEAS_HAVE_HDF5
         print_result("HDF5 - no streaming", bench(stream_hdf5, h5_path, data, n, 1, 5));
@@ -239,7 +242,7 @@ int main(void)
 
         /* File size */
         write_measflow(meas_path, data, n);
-        print_header("File size", n);
+        print_header("File size");
         print_size("MeasFlow", file_size(meas_path));
 #ifdef MEAS_HAVE_HDF5
         write_hdf5(h5_path, data, n);

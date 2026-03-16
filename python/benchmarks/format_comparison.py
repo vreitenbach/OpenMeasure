@@ -175,18 +175,16 @@ def _print_results(name: str, results: dict):
     print(f"  {name}")
     print(f"{'-' * 60}")
     for label, data in results.items():
-        parts = []
         if "median_ms" in data:
-            parts.append(f"{data['median_ms']:8.2f} ms")
-        if "size_kb" in data:
-            parts.append(f"{data['size_kb']:8.1f} KB")
-        print(f"  {label:30s} {' | '.join(parts)}")
+            print(f"  {label}: {data['median_ms']:8.2f} ms")
+        elif "size_kb" in data:
+            print(f"  {label}: {data['size_kb']:8.1f} KB")
 
 
 def main():
     for n in [100_000, 1_000_000]:
         print(f"\n{'=' * 60}")
-        print(f"  Samples: {n:,}")
+        print(f"  Format comparison (Python) -- {n} samples")
         print(f"{'=' * 60}")
 
         suite = BenchmarkSuite(sample_count=n)

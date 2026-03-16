@@ -46,7 +46,7 @@ def main():
             data = np.random.default_rng(42).random(n, dtype=np.float32) * 10000
 
             print(f"\n{'=' * 60}")
-            print(f"  Cross-language MeasFlow benchmarks -- {n:,} samples")
+            print(f"  Cross-language benchmarks (Python) -- {n} samples")
             print(f"{'=' * 60}")
 
             # Write benchmark
