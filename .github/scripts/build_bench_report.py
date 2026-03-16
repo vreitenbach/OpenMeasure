@@ -161,26 +161,40 @@ def main():
             out.append(f"| {label} | {c} | {cs} | {py} |")
         out.append("")
 
-    # ── Overview: vs HDF5 (100K) ──
-    hdf5_rows = []
-    for lang in ["C", "C#", "Python"]:
-        if lang not in fmtcmp or n not in fmtcmp[lang]:
-            continue
-        sections = fmtcmp[lang][n]
-        write_section = sections.get("Write 1 channel", {})
-        mf_entry = next((v for k, v in write_section.items() if "MeasFlow" in k), None)
-        hdf_entry = next((v for k, v in write_section.items() if "HDF5" in k), None)
-        if mf_entry and hdf_entry and "ms" in mf_entry and "ms" in hdf_entry:
-            hdf5_rows.append((lang, mf_entry["ms"], hdf_entry["ms"]))
+    # ── vs HDF5: all operations (100K) ──
+    hdf5_ops = [
+        ("Write 1 channel", "Write 1ch"),
+        ("Write 10 channels", "Write 10ch"),
+        ("Read 1 channel", "Read 1ch"),
+        ("Streaming write", "Streaming"),
+    ]
+    hdf5_table_rows = []
+    for section_key, label in hdf5_ops:
+        row = {"label": label}
+        for lang in ["C", "C#", "Python"]:
+            if lang not in fmtcmp or n not in fmtcmp[lang]:
+                continue
+            section = fmtcmp[lang][n].get(section_key, {})
+            mf = next((v for k, v in section.items() if "MeasFlow" in k), None)
+            hdf = next((v for k, v in section.items() if "HDF5" in k), None)
+            if mf and hdf and "ms" in mf and "ms" in hdf:
+                ratio = mf["ms"] / hdf["ms"] if hdf["ms"] > 0 else 0
+                icon = "\U0001f7e2" if ratio <= 1.5 else "\U0001f7e1" if ratio <= 3 else "\U0001f534"
+                row[lang] = f"{fmt_ms(mf['ms'])} vs {fmt_ms(hdf['ms'])} ({icon} {ratio:.1f}x)"
+            elif mf and "ms" in mf:
+                row[lang] = f"{fmt_ms(mf['ms'])} (no HDF5)"
+        if any(lang in row for lang in ["C", "C#", "Python"]):
+            hdf5_table_rows.append(row)
 
-    if hdf5_rows:
-        out.append(f"### vs HDF5 \u2014 Write 1ch, {n:,} samples\n")
-        out.append("| Language | MeasFlow | HDF5 | Ratio |")
+    if hdf5_table_rows:
+        out.append(f"### vs HDF5 \u2014 {n:,} samples\n")
+        out.append("| Operation | C | C# | Python |")
         out.append("|---|---|---|---|")
-        for lang, mf, hdf in hdf5_rows:
-            ratio = mf / hdf if hdf > 0 else 0
-            icon = "\U0001f7e2" if ratio <= 1.5 else "\U0001f7e1" if ratio <= 3 else "\U0001f534"
-            out.append(f"| {lang} | {fmt_ms(mf)} | {fmt_ms(hdf)} | {icon} {ratio:.1f}x |")
+        for row in hdf5_table_rows:
+            c = row.get("C", "\u2014")
+            cs = row.get("C#", "\u2014")
+            py = row.get("Python", "\u2014")
+            out.append(f"| {row['label']} | {c} | {cs} | {py} |")
         out.append("")
 
     # ── File size comparison (100K) ──

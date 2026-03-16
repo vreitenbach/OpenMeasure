@@ -821,111 +821,295 @@ void meas_writer_close(MeasWriter *writer) {
     free(writer);
 }
 
+/* ── Endianness detection ─────────────────────────────────────────────────── */
+
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define MEAS_IS_LE 1
+#elif defined(_WIN32) || defined(__x86_64__) || defined(__i386__) || \
+      defined(__aarch64__) || defined(__arm__) || defined(_M_AMD64) || \
+      defined(_M_IX86) || defined(_M_ARM64)
+#define MEAS_IS_LE 1
+#else
+#define MEAS_IS_LE 0
+#endif
+
+/* ── Batch statistics helpers ────────────────────────────────────────────── */
+
+/* Batch stats for float32 arrays: min/max/sum in one pass, then parallel
+   Welford merge.  Avoids per-element division. */
+static void stats_update_f32_bulk(StatsAcc *s, const float *data, int64_t count) {
+    if (!s->active || count == 0) return;
+    double batch_min = (double)data[0], batch_max = batch_min;
+    double batch_sum = 0.0;
+    for (int64_t i = 0; i < count; i++) {
+        double v = (double)data[i];
+        if (v < batch_min) batch_min = v;
+        if (v > batch_max) batch_max = v;
+        batch_sum += v;
+    }
+    double batch_mean = batch_sum / (double)count;
+    double batch_m2 = 0.0;
+    if (count > 1) {
+        for (int64_t i = 0; i < count; i++) {
+            double d = (double)data[i] - batch_mean;
+            batch_m2 += d * d;
+        }
+    }
+    if (s->count == 0) {
+        s->first = (double)data[0];
+        s->min = batch_min;
+        s->max = batch_max;
+    } else {
+        if (batch_min < s->min) s->min = batch_min;
+        if (batch_max > s->max) s->max = batch_max;
+    }
+    s->last = (double)data[count - 1];
+    int64_t old_count = s->count;
+    int64_t new_count = old_count + count;
+    double delta = batch_mean - s->mean;
+    s->m2 += batch_m2 + delta * delta * (double)old_count * (double)count / (double)new_count;
+    s->mean += delta * (double)count / (double)new_count;
+    s->sum += batch_sum;
+    s->count = new_count;
+}
+
+static void stats_update_f64_bulk(StatsAcc *s, const double *data, int64_t count) {
+    if (!s->active || count == 0) return;
+    double batch_min = data[0], batch_max = data[0];
+    double batch_sum = 0.0;
+    for (int64_t i = 0; i < count; i++) {
+        double v = data[i];
+        if (v < batch_min) batch_min = v;
+        if (v > batch_max) batch_max = v;
+        batch_sum += v;
+    }
+    double batch_mean = batch_sum / (double)count;
+    double batch_m2 = 0.0;
+    if (count > 1) {
+        for (int64_t i = 0; i < count; i++) {
+            double d = data[i] - batch_mean;
+            batch_m2 += d * d;
+        }
+    }
+    if (s->count == 0) {
+        s->first = data[0];
+        s->min = batch_min;
+        s->max = batch_max;
+    } else {
+        if (batch_min < s->min) s->min = batch_min;
+        if (batch_max > s->max) s->max = batch_max;
+    }
+    s->last = data[count - 1];
+    int64_t old_count = s->count;
+    int64_t new_count = old_count + count;
+    double delta = batch_mean - s->mean;
+    s->m2 += batch_m2 + delta * delta * (double)old_count * (double)count / (double)new_count;
+    s->mean += delta * (double)count / (double)new_count;
+    s->sum += batch_sum;
+    s->count = new_count;
+}
+
+/* Generic batch stats for integer types (converted to double). */
+#define DEFINE_STATS_BULK_INT(SUFFIX, CTYPE)                                   \
+static void stats_update_##SUFFIX##_bulk(StatsAcc *s, const CTYPE *data,       \
+                                          int64_t count) {                     \
+    if (!s->active || count == 0) return;                                      \
+    double batch_min = (double)data[0], batch_max = batch_min;                 \
+    double batch_sum = 0.0;                                                    \
+    for (int64_t i = 0; i < count; i++) {                                      \
+        double v = (double)data[i];                                            \
+        if (v < batch_min) batch_min = v;                                      \
+        if (v > batch_max) batch_max = v;                                      \
+        batch_sum += v;                                                        \
+    }                                                                          \
+    double batch_mean = batch_sum / (double)count;                             \
+    double batch_m2 = 0.0;                                                     \
+    if (count > 1) {                                                           \
+        for (int64_t i = 0; i < count; i++) {                                  \
+            double d = (double)data[i] - batch_mean;                           \
+            batch_m2 += d * d;                                                 \
+        }                                                                      \
+    }                                                                          \
+    if (s->count == 0) {                                                       \
+        s->first = (double)data[0]; s->min = batch_min; s->max = batch_max;   \
+    } else {                                                                   \
+        if (batch_min < s->min) s->min = batch_min;                            \
+        if (batch_max > s->max) s->max = batch_max;                            \
+    }                                                                          \
+    s->last = (double)data[count - 1];                                         \
+    int64_t old_count = s->count, new_count = old_count + count;               \
+    double delta = batch_mean - s->mean;                                       \
+    s->m2 += batch_m2 + delta * delta * (double)old_count * (double)count      \
+             / (double)new_count;                                              \
+    s->mean += delta * (double)count / (double)new_count;                      \
+    s->sum += batch_sum;                                                       \
+    s->count = new_count;                                                      \
+}
+DEFINE_STATS_BULK_INT(i8,  int8_t)
+DEFINE_STATS_BULK_INT(i16, int16_t)
+DEFINE_STATS_BULK_INT(i32, int32_t)
+DEFINE_STATS_BULK_INT(i64, int64_t)
+DEFINE_STATS_BULK_INT(u8,  uint8_t)
+DEFINE_STATS_BULK_INT(u16, uint16_t)
+DEFINE_STATS_BULK_INT(u32, uint32_t)
+DEFINE_STATS_BULK_INT(u64, uint64_t)
+
 /* ── Typed write helpers ──────────────────────────────────────────────────── */
 
-/* For float/double we still need LE encoding; on little-endian it's a no-op
-   but we handle it explicitly for correctness. */
+/* On little-endian systems (x86, ARM, etc.) data can be memcpy'd directly.
+   Statistics are computed in a separate batch pass (parallel Welford)
+   instead of per-element division. */
+
+/* Helper: bulk-copy data into buffer (LE fast path or per-element encoding) */
+#if MEAS_IS_LE
+#define BULK_COPY(ch, src_ptr, cnt, elem_size)                                 \
+    do {                                                                       \
+        size_t _bc = (size_t)(cnt) * (elem_size);                              \
+        if (!bbuf_reserve(&(ch)->buf, _bc)) return -1;                         \
+        memcpy((ch)->buf.data + (ch)->buf.size, (src_ptr), _bc);               \
+        (ch)->buf.size += _bc;                                                 \
+    } while (0)
+#else
+#define BULK_COPY(ch, src_ptr, cnt, elem_size) ((void)0) /* handled per type */
+#endif
+
 int meas_channel_write_f32(MeasChannelWriter *ch, const float *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_FLOAT32) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 4);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 4))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[4]; f32_to_le_bytes(b, data[i]);
-        if (!bbuf_append(&ch->buf, b, 4)) return -1;
-        stats_update(&ch->stats, (double)data[i]);
+        f32_to_le_bytes(ch->buf.data + ch->buf.size, data[i]);
+        ch->buf.size += 4;
     }
+#endif
+    stats_update_f32_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count;
     return 0;
 }
 int meas_channel_write_f64(MeasChannelWriter *ch, const double *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_FLOAT64) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 8);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 8))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[8]; f64_to_le_bytes(b, data[i]);
-        if (!bbuf_append(&ch->buf, b, 8)) return -1;
-        stats_update(&ch->stats, data[i]);
+        f64_to_le_bytes(ch->buf.data + ch->buf.size, data[i]);
+        ch->buf.size += 8;
     }
+#endif
+    stats_update_f64_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count;
     return 0;
 }
 int meas_channel_write_i8(MeasChannelWriter *ch, const int8_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_INT8) return -1;
     if (!bbuf_append(&ch->buf, data, (size_t)count)) return -1;
-    for (int64_t i = 0; i < count; i++) stats_update(&ch->stats, (double)data[i]);
+    stats_update_i8_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_i16(MeasChannelWriter *ch, const int16_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_INT16) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 2);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 2))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[2]; write_le16(b, (uint16_t)data[i]);
-        bbuf_append(&ch->buf, b, 2);
-        stats_update(&ch->stats, (double)data[i]);
+        write_le16(ch->buf.data + ch->buf.size, (uint16_t)data[i]);
+        ch->buf.size += 2;
     }
+#endif
+    stats_update_i16_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_i32(MeasChannelWriter *ch, const int32_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_INT32) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 4);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 4))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[4]; write_le32(b, (uint32_t)data[i]);
-        bbuf_append(&ch->buf, b, 4);
-        stats_update(&ch->stats, (double)data[i]);
+        write_le32(ch->buf.data + ch->buf.size, (uint32_t)data[i]);
+        ch->buf.size += 4;
     }
+#endif
+    stats_update_i32_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_i64(MeasChannelWriter *ch, const int64_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_INT64) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 8);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 8))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[8]; write_le64(b, (uint64_t)data[i]);
-        bbuf_append(&ch->buf, b, 8);
-        stats_update(&ch->stats, (double)data[i]);
+        write_le64(ch->buf.data + ch->buf.size, (uint64_t)data[i]);
+        ch->buf.size += 8;
     }
+#endif
+    stats_update_i64_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_u8(MeasChannelWriter *ch, const uint8_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_UINT8) return -1;
     if (!bbuf_append(&ch->buf, data, (size_t)count)) return -1;
-    for (int64_t i = 0; i < count; i++) stats_update(&ch->stats, (double)data[i]);
+    stats_update_u8_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_u16(MeasChannelWriter *ch, const uint16_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_UINT16) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 2);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 2))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[2]; write_le16(b, data[i]);
-        bbuf_append(&ch->buf, b, 2);
-        stats_update(&ch->stats, (double)data[i]);
+        write_le16(ch->buf.data + ch->buf.size, data[i]);
+        ch->buf.size += 2;
     }
+#endif
+    stats_update_u16_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_u32(MeasChannelWriter *ch, const uint32_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_UINT32) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 4);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 4))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[4]; write_le32(b, data[i]);
-        bbuf_append(&ch->buf, b, 4);
-        stats_update(&ch->stats, (double)data[i]);
+        write_le32(ch->buf.data + ch->buf.size, data[i]);
+        ch->buf.size += 4;
     }
+#endif
+    stats_update_u32_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_u64(MeasChannelWriter *ch, const uint64_t *data, int64_t count) {
     if (!ch || ch->dtype != MEAS_UINT64) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, data, count, 8);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 8))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[8]; write_le64(b, data[i]);
-        bbuf_append(&ch->buf, b, 8);
-        stats_update(&ch->stats, (double)data[i]);
+        write_le64(ch->buf.data + ch->buf.size, data[i]);
+        ch->buf.size += 8;
     }
+#endif
+    stats_update_u64_bulk(&ch->stats, data, count);
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_timestamp(MeasChannelWriter *ch, const int64_t *ns, int64_t count) {
     if (!ch || (ch->dtype != MEAS_TIMESTAMP && ch->dtype != MEAS_TIMESPAN)) return -1;
+#if MEAS_IS_LE
+    BULK_COPY(ch, ns, count, 8);
+#else
     if (!bbuf_reserve(&ch->buf, (size_t)(count * 8))) return -1;
     for (int64_t i = 0; i < count; i++) {
-        uint8_t b[8]; write_le64(b, (uint64_t)ns[i]);
-        bbuf_append(&ch->buf, b, 8);
+        write_le64(ch->buf.data + ch->buf.size, (uint64_t)ns[i]);
+        ch->buf.size += 8;
     }
+#endif
     ch->sample_count_pending += count; return 0;
 }
 int meas_channel_write_frame(MeasChannelWriter *ch, const uint8_t *frame, int32_t length) {
