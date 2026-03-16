@@ -6,6 +6,11 @@ Open, high-performance measurement data format with multi-language support. Simp
 
 **MIT License** | **Zero dependencies**
 
+[![NuGet](https://img.shields.io/nuget/v/MeasFlow)](https://www.nuget.org/packages/MeasFlow)
+[![PyPI](https://img.shields.io/pypi/v/measflow)](https://pypi.org/project/measflow/)
+[![vcpkg](https://img.shields.io/badge/vcpkg-registry-blue)](https://github.com/vreitenbach/vcpkg-registry)
+[![CI](https://github.com/vreitenbach/MeasFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/vreitenbach/MeasFlow/actions/workflows/ci.yml)
+
 ## Why?
 
 Existing formats have limitations:
@@ -15,13 +20,26 @@ Existing formats have limitations:
 
 MeasFlow provides a clean, open alternative with first-class support for automotive bus data (CAN, CAN-FD, LIN, FlexRay, Ethernet) and AUTOSAR concepts (PDU, Container-PDU, Multiplexing, E2E, SecOC).
 
+## Installation
+
+```sh
+# C# / .NET
+dotnet add package MeasFlow
+
+# Python
+pip install measflow
+
+# C (vcpkg custom registry — requires vcpkg-configuration.json in your project)
+vcpkg install measflow
+```
+
 ## Language Bindings
 
-| Language | Directory | Quick Start |
-|----------|-----------|-------------|
-| **C#** (.NET 10) | [`csharp/`](csharp/) | [`csharp/samples/QuickStart/`](csharp/samples/QuickStart/) |
-| **Python** (≥ 3.10) | [`python/`](python/) | [`python/quickstart/quickstart.py`](python/quickstart/quickstart.py) |
-| **C** (C99) | [`c/`](c/) | [`c/quickstart/quickstart.c`](c/quickstart/quickstart.c) |
+| Language | Directory | Install | Quick Start |
+|----------|-----------|---------|-------------|
+| **C#** (.NET 10) | [`csharp/`](csharp/) | [`NuGet`](https://www.nuget.org/packages/MeasFlow) | [`csharp/samples/QuickStart/`](csharp/samples/QuickStart/) |
+| **Python** (≥ 3.10) | [`python/`](python/) | [`PyPI`](https://pypi.org/project/measflow/) | [`python/quickstart/quickstart.py`](python/quickstart/quickstart.py) |
+| **C** (C99) | [`c/`](c/) | [vcpkg](https://github.com/vreitenbach/vcpkg-registry) | [`c/quickstart/quickstart.c`](c/quickstart/quickstart.c) |
 
 Each binding is self-contained with its own README, tests, and a runnable quickstart.
 
@@ -41,6 +59,22 @@ python quickstart/quickstart.py
 ```
 
 ### C Quick Start
+
+To use measflow via vcpkg, add a `vcpkg-configuration.json` to your project:
+
+```json
+{
+  "default-registry": null,
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://github.com/vreitenbach/vcpkg-registry",
+      "baseline": "d6473e3037973c8a5d465ef3fc1955b8e4f58557",
+      "packages": ["measflow"]
+    }
+  ]
+}
+```
 
 ```sh
 cd c
@@ -164,14 +198,37 @@ Raw frame wire format per bus type:
 | FlexRay | `[uint16 slotId] [byte cycle] [byte flags] [uint16 len] [payload]` |
 | Ethernet | `[6B macDst] [6B macSrc] [uint16 etherType] [uint16 vlan] [uint16 len] [payload]` |
 
-## Benchmarks (C#)
+## Benchmarks
+
+All three language bindings include format comparison benchmarks (MeasFlow vs HDF5) and cross-language performance tests.
+
+### C# (BenchmarkDotNet)
 
 ```bash
 cd csharp/benchmarks/MeasFlow.Benchmarks
-dotnet run -c Release -- --filter "*Write*"    # Write benchmarks
-dotnet run -c Release -- --filter "*Read*"     # Read benchmarks
-dotnet run -c Release -- --filter "*Size*"     # File size comparison
-dotnet run -c Release                          # All benchmarks
+dotnet run -c Release -- --filter "*FormatComparison*"   # MeasFlow vs HDF5 (PureHDF)
+dotnet run -c Release -- --filter "*CrossLanguage*"      # Cross-language comparison
+dotnet run -c Release                                    # All benchmarks
+```
+
+### Python
+
+```bash
+cd python
+pip install h5py                              # optional, for HDF5 comparison
+python benchmarks/format_comparison.py        # MeasFlow vs HDF5 (h5py)
+python benchmarks/cross_language.py           # Cross-language comparison
+```
+
+### C
+
+```bash
+# With HDF5 comparison (requires vcpkg install hdf5):
+cmake -B build -S c -DMEAS_BUILD_BENCHMARKS=ON \
+  -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+cmake --build build --config Release
+./build/bench_format_comparison               # MeasFlow vs HDF5 (libhdf5)
+./build/bench_cross_language                  # Cross-language comparison
 ```
 
 ## Project Structure
@@ -200,11 +257,9 @@ c/                            C (C99) implementation
 
 - [ ] Rust reader/writer
 - [ ] Memory-mapped I/O for large files
-- [ ] Performance comparison vs TDMS/HDF5/MDF4
+- [x] Performance comparison vs HDF5 (C#, Python, C)
 - [ ] MATLAB integration
 - [ ] Excel plugin
-- [ ] NuGet publish to nuget.org
-- [ ] PyPI publish to pypi.org
 - [ ] DBC/ARXML import
 
 ## License

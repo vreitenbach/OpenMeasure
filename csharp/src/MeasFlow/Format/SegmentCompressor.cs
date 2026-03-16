@@ -18,6 +18,13 @@ internal static class SegmentCompressor
         _ => data,
     };
 
+    public static byte[] Compress(ReadOnlySpan<byte> data, MeasCompression compression) => compression switch
+    {
+        MeasCompression.Lz4 => CompressLz4(data),
+        MeasCompression.Zstd => CompressZstd(data),
+        _ => data.ToArray(),
+    };
+
     public static byte[] Decompress(byte[] data, MeasCompression compression) => compression switch
     {
         MeasCompression.Lz4 => DecompressLz4(data),
@@ -25,7 +32,9 @@ internal static class SegmentCompressor
         _ => data,
     };
 
-    private static byte[] CompressLz4(byte[] data)
+    private static byte[] CompressLz4(byte[] data) => CompressLz4((ReadOnlySpan<byte>)data);
+
+    private static byte[] CompressLz4(ReadOnlySpan<byte> data)
     {
         int maxLen = LZ4Codec.MaximumOutputSize(data.Length);
         var target = new byte[4 + maxLen]; // 4 bytes for original size prefix
@@ -42,7 +51,9 @@ internal static class SegmentCompressor
         return target;
     }
 
-    private static byte[] CompressZstd(byte[] data)
+    private static byte[] CompressZstd(byte[] data) => CompressZstd((ReadOnlySpan<byte>)data);
+
+    private static byte[] CompressZstd(ReadOnlySpan<byte> data)
     {
         using var compressor = new Compressor(3); // level 3 = good balance
         var compressed = compressor.Wrap(data);

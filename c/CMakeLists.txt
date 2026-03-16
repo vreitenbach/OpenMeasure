@@ -69,6 +69,41 @@ endif()
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
+# ── Benchmarks ──────────────────────────────────────────────────────────────
+
+option(MEAS_BUILD_BENCHMARKS "Build format comparison benchmarks" OFF)
+
+if(MEAS_BUILD_BENCHMARKS)
+    add_executable(bench_format_comparison benchmarks/format_comparison.c)
+    target_link_libraries(bench_format_comparison PRIVATE measflow)
+    if(MSVC)
+        target_compile_definitions(bench_format_comparison PRIVATE _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(bench_format_comparison PRIVATE /W4)
+    else()
+        target_compile_options(bench_format_comparison PRIVATE -Wall -Wextra)
+    endif()
+
+    add_executable(bench_cross_language benchmarks/cross_language.c)
+    target_link_libraries(bench_cross_language PRIVATE measflow)
+    if(MSVC)
+        target_compile_definitions(bench_cross_language PRIVATE _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(bench_cross_language PRIVATE /W4)
+    else()
+        target_compile_options(bench_cross_language PRIVATE -Wall -Wextra)
+    endif()
+
+    find_package(hdf5 CONFIG QUIET)
+    if(hdf5_FOUND)
+        target_compile_definitions(bench_format_comparison PRIVATE MEAS_HAVE_HDF5)
+        target_link_libraries(bench_format_comparison PRIVATE hdf5::hdf5-shared)
+        message(STATUS "Benchmarks: HDF5 comparison enabled")
+    else()
+        message(STATUS "Benchmarks: HDF5 not found, MeasFlow-only benchmarks")
+    endif()
+endif()
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+
 option(MEAS_BUILD_TESTS "Build C unit tests" ON)
 
 if(MEAS_BUILD_TESTS)
