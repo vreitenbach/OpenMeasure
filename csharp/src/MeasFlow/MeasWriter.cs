@@ -359,6 +359,7 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
         if (_trackStats) _stats.Update(NumericConverter.ToDouble(value));
     }
 
+    /// <summary>Write a batch of samples from a span.</summary>
     public void Write(ReadOnlySpan<T> values)
     {
         if (values.IsEmpty) return;
