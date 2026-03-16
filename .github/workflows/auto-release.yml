@@ -27,7 +27,7 @@ jobs:
       - name: Read and verify versions across all packages
         id: version
         run: |
-          VERSION=$(python3 -c "
+          VERSION=$(python3 - << 'PY'
           import json, re, pathlib, sys, xml.etree.ElementTree as ET
 
           errors = []
@@ -73,7 +73,8 @@ jobs:
               sys.exit(1)
 
           print(py)
-          ")
+          PY
+          )
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check if tag already exists
