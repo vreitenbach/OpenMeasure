@@ -137,7 +137,7 @@ static void bbuf_free(ByteBuf *b) {
 static int bbuf_reserve(ByteBuf *b, size_t extra) {
     size_t need = b->size + extra;
     if (need <= b->capacity) return 1;
-    size_t cap = b->capacity ? b->capacity * 2 : 256;
+    size_t cap = b->capacity ? b->capacity * 2 : 4096;
     while (cap < need) cap *= 2;
     uint8_t *p = (uint8_t *)realloc(b->data, cap);
     if (!p) return 0;
@@ -166,6 +166,11 @@ static int bbuf_append_string(ByteBuf *b, const char *s) {
     int32_t len = (int32_t)strlen(s);
     if (!bbuf_append_le32(b, (uint32_t)len)) return 0;
     return bbuf_append(b, s, (size_t)len);
+}
+/* Append string with known length (avoids strlen on constant strings) */
+static int bbuf_append_string_n(ByteBuf *b, const char *s, size_t len) {
+    if (!bbuf_append_le32(b, (uint32_t)len)) return 0;
+    return bbuf_append(b, s, len);
 }
 
 /* Read a length-prefixed string from buf[offset].
@@ -471,43 +476,48 @@ static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats) {
                 if (!bbuf_append_le32(b, 8)) return 0;
                 double variance = ch->stats.count > 0
                     ? ch->stats.m2 / (double)ch->stats.count : 0.0;
-                struct { const char *k; MeasDataType t; double dv; int64_t iv; } e[] = {
-                    {"meas.stats.count",    MEAS_INT64,   0.0,              ch->stats.count},
-                    {"meas.stats.min",      MEAS_FLOAT64, ch->stats.min,    0},
-                    {"meas.stats.max",      MEAS_FLOAT64, ch->stats.max,    0},
-                    {"meas.stats.sum",      MEAS_FLOAT64, ch->stats.sum,    0},
-                    {"meas.stats.mean",     MEAS_FLOAT64, ch->stats.mean,   0},
-                    {"meas.stats.variance", MEAS_FLOAT64, variance,         0},
-                    {"meas.stats.first",    MEAS_FLOAT64, ch->stats.first,  0},
-                    {"meas.stats.last",     MEAS_FLOAT64, ch->stats.last,   0},
+                /* Pre-computed lengths avoid repeated strlen on constants */
+                static const struct { const char *k; size_t klen; MeasDataType t; } keys[] = {
+                    {"meas.stats.count",    16, MEAS_INT64},
+                    {"meas.stats.min",      14, MEAS_FLOAT64},
+                    {"meas.stats.max",      14, MEAS_FLOAT64},
+                    {"meas.stats.sum",      14, MEAS_FLOAT64},
+                    {"meas.stats.mean",     15, MEAS_FLOAT64},
+                    {"meas.stats.variance", 19, MEAS_FLOAT64},
+                    {"meas.stats.first",    16, MEAS_FLOAT64},
+                    {"meas.stats.last",     15, MEAS_FLOAT64},
+                };
+                double vals[] = {
+                    0, ch->stats.min, ch->stats.max, ch->stats.sum,
+                    ch->stats.mean, variance, ch->stats.first, ch->stats.last
                 };
                 for (int k = 0; k < 8; k++) {
-                    if (!bbuf_append_string(b, e[k].k)) return 0;
-                    if (e[k].t == MEAS_INT64) {
+                    if (!bbuf_append_string_n(b, keys[k].k, keys[k].klen)) return 0;
+                    if (keys[k].t == MEAS_INT64) {
                         if (!bbuf_append_u8(b, (uint8_t)MEAS_INT64)) return 0;
-                        if (!bbuf_append_le64(b, (uint64_t)e[k].iv)) return 0;
+                        if (!bbuf_append_le64(b, (uint64_t)ch->stats.count)) return 0;
                     } else {
                         if (!bbuf_append_u8(b, (uint8_t)MEAS_FLOAT64)) return 0;
-                        uint8_t vb[8]; f64_to_le_bytes(vb, e[k].dv);
+                        uint8_t vb[8]; f64_to_le_bytes(vb, vals[k]);
                         if (!bbuf_append(b, vb, 8)) return 0;
                     }
                 }
             } else if (with_stats && ch->stats.active) {
                 /* Write placeholder zeroed stats (same byte count) */
                 if (!bbuf_append_le32(b, 8)) return 0;
-                struct { const char *k; MeasDataType t; } e[] = {
-                    {"meas.stats.count",    MEAS_INT64},
-                    {"meas.stats.min",      MEAS_FLOAT64},
-                    {"meas.stats.max",      MEAS_FLOAT64},
-                    {"meas.stats.sum",      MEAS_FLOAT64},
-                    {"meas.stats.mean",     MEAS_FLOAT64},
-                    {"meas.stats.variance", MEAS_FLOAT64},
-                    {"meas.stats.first",    MEAS_FLOAT64},
-                    {"meas.stats.last",     MEAS_FLOAT64},
+                static const struct { const char *k; size_t klen; MeasDataType t; } keys[] = {
+                    {"meas.stats.count",    16, MEAS_INT64},
+                    {"meas.stats.min",      14, MEAS_FLOAT64},
+                    {"meas.stats.max",      14, MEAS_FLOAT64},
+                    {"meas.stats.sum",      14, MEAS_FLOAT64},
+                    {"meas.stats.mean",     15, MEAS_FLOAT64},
+                    {"meas.stats.variance", 19, MEAS_FLOAT64},
+                    {"meas.stats.first",    16, MEAS_FLOAT64},
+                    {"meas.stats.last",     15, MEAS_FLOAT64},
                 };
                 for (int k = 0; k < 8; k++) {
-                    if (!bbuf_append_string(b, e[k].k)) return 0;
-                    if (e[k].t == MEAS_INT64) {
+                    if (!bbuf_append_string_n(b, keys[k].k, keys[k].klen)) return 0;
+                    if (keys[k].t == MEAS_INT64) {
                         if (!bbuf_append_u8(b, (uint8_t)MEAS_INT64)) return 0;
                         if (!bbuf_append_le64(b, 0)) return 0;
                     } else {
@@ -534,20 +544,15 @@ static int write_segment(MeasWriter *w, int32_t type, int32_t flags,
     long seg_start = ftell(w->file);
     if (seg_start < 0) return 0;
 
+    /* Pre-compute NextSegmentOffset: header(32) + content = next segment */
+    int64_t next_off = (int64_t)seg_start + MEAS_SEG_HEADER_SIZE + (int64_t)content_len;
+
     uint8_t hdr[32];
-    encode_seg_header(hdr, type, flags, (int64_t)content_len, 0 /* patched */, chunk_count);
+    encode_seg_header(hdr, type, flags, (int64_t)content_len, next_off, chunk_count);
     if (fwrite(hdr, 1, 32, w->file) != 32) return 0;
     if (content_len > 0) {
         if (fwrite(content, 1, content_len, w->file) != content_len) return 0;
     }
-    long next_off = ftell(w->file);
-    if (next_off < 0) return 0;
-
-    /* Patch NextSegmentOffset in the already-written segment header */
-    encode_seg_header(hdr, type, flags, (int64_t)content_len, (int64_t)next_off, chunk_count);
-    if (fseek(w->file, seg_start, SEEK_SET) != 0) return 0;
-    if (fwrite(hdr, 1, 32, w->file) != 32) return 0;
-    if (fseek(w->file, next_off, SEEK_SET) != 0) return 0;
 
     w->segment_count++;
     return 1;
@@ -734,6 +739,18 @@ static uint8_t *decompress_segment(const uint8_t *data, size_t len,
     return NULL;
 }
 
+/* Compute total data segment content size for pending channels */
+static size_t compute_data_content_size(const MeasWriter *w) {
+    size_t total = 4; /* int32: chunkCount */
+    for (int gi = 0; gi < w->group_count; gi++)
+        for (int ci = 0; ci < w->groups[gi]->channel_count; ci++) {
+            MeasChannelWriter *ch = w->groups[gi]->channels[ci];
+            if (ch->buf.size == 0) continue;
+            total += 4 + 8 + 8 + ch->buf.size; /* index + sampleCount + dataByteLen + data */
+        }
+    return total;
+}
+
 int meas_writer_flush(MeasWriter *writer) {
     if (!writer) return -1;
     if (!ensure_metadata(writer)) return -1;
@@ -745,11 +762,45 @@ int meas_writer_flush(MeasWriter *writer) {
             if (writer->groups[gi]->channels[ci]->buf.size > 0) pending++;
     if (pending == 0) return 0;
 
-    /* Build data segment content:
-       [int32: chunkCount]
-       For each pending channel:
-         [int32: channelIndex][int64: sampleCount][int64: dataByteLen][bytes: data]
-    */
+    /* Uncompressed fast path: write segment header + data directly to file
+       without copying all channel data into an intermediate buffer. */
+    if (writer->compression == MEAS_COMPRESS_NONE) {
+        size_t content_len = compute_data_content_size(writer);
+        long seg_start = ftell(writer->file);
+        if (seg_start < 0) return -1;
+        int64_t next_off = (int64_t)seg_start + MEAS_SEG_HEADER_SIZE + (int64_t)content_len;
+
+        uint8_t hdr[32];
+        encode_seg_header(hdr, MEAS_SEG_TYPE_DATA, 0, (int64_t)content_len, next_off, pending);
+        if (fwrite(hdr, 1, 32, writer->file) != 32) return -1;
+
+        /* Write chunkCount */
+        uint8_t tmp[20]; /* big enough for int32 + int64 + int64 */
+        write_le32(tmp, (uint32_t)pending);
+        if (fwrite(tmp, 1, 4, writer->file) != 4) return -1;
+
+        /* Write each pending channel directly */
+        for (int gi = 0; gi < writer->group_count; gi++) {
+            for (int ci = 0; ci < writer->groups[gi]->channel_count; ci++) {
+                MeasChannelWriter *ch = writer->groups[gi]->channels[ci];
+                if (ch->buf.size == 0) continue;
+                /* Chunk header: index(4) + sampleCount(8) + dataByteLen(8) */
+                write_le32(tmp, (uint32_t)ch->global_index);
+                write_le64(tmp + 4, (uint64_t)ch->sample_count_pending);
+                write_le64(tmp + 12, (uint64_t)ch->buf.size);
+                if (fwrite(tmp, 1, 20, writer->file) != 20) return -1;
+                /* Write channel data directly — no intermediate copy */
+                if (fwrite(ch->buf.data, 1, ch->buf.size, writer->file) != ch->buf.size) return -1;
+                ch->buf.size = 0;
+                ch->sample_count_pending = 0;
+            }
+        }
+        writer->segment_count++;
+        if (fflush(writer->file) != 0) return -1;
+        return 0;
+    }
+
+    /* Compressed path: must build segment content in memory for compression */
     ByteBuf seg; bbuf_init(&seg);
     if (!bbuf_append_le32(&seg, (uint32_t)pending)) { bbuf_free(&seg); return -1; }
 
@@ -757,33 +808,22 @@ int meas_writer_flush(MeasWriter *writer) {
         for (int ci = 0; ci < writer->groups[gi]->channel_count; ci++) {
             MeasChannelWriter *ch = writer->groups[gi]->channels[ci];
             if (ch->buf.size == 0) continue;
-            /* Chunk header */
             if (!bbuf_append_le32(&seg, (uint32_t)ch->global_index)) goto fail;
             if (!bbuf_append_le64(&seg, (uint64_t)ch->sample_count_pending)) goto fail;
             if (!bbuf_append_le64(&seg, (uint64_t)ch->buf.size)) goto fail;
             if (!bbuf_append(&seg, ch->buf.data, ch->buf.size)) goto fail;
-            /* Reset buffer */
             ch->buf.size = 0;
             ch->sample_count_pending = 0;
         }
     }
 
-    /* Compress if requested */
-    const uint8_t *content_data = seg.data;
-    size_t content_len = seg.size;
-    uint8_t *compressed = NULL;
+    size_t comp_len = 0;
+    uint8_t *compressed = compress_segment(seg.data, seg.size, writer->compression, &comp_len);
+    if (!compressed) { bbuf_free(&seg); return -1; }
+
     int32_t flags = (int32_t)(writer->compression & 0x0F);
-
-    if (writer->compression != MEAS_COMPRESS_NONE) {
-        size_t comp_len = 0;
-        compressed = compress_segment(seg.data, seg.size, writer->compression, &comp_len);
-        if (!compressed) { bbuf_free(&seg); return -1; }
-        content_data = compressed;
-        content_len = comp_len;
-    }
-
     int ok = write_segment(writer, MEAS_SEG_TYPE_DATA, flags,
-                            content_data, content_len, pending);
+                            compressed, comp_len, pending);
     free(compressed);
     bbuf_free(&seg);
     if (fflush(writer->file) != 0) return -1;

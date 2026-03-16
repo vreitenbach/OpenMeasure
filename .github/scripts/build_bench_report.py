@@ -167,7 +167,6 @@ def main():
         ("Write 1 channel", "Write 1ch"),
         ("Write 10 channels", "Write 10ch"),
         ("Read 1 channel", "Read 1ch"),
-        ("Streaming write", "Streaming"),
     ]
     hdf5_table_rows = []
     for section_key, label in hdf5_ops:
@@ -189,7 +188,7 @@ def main():
 
     if hdf5_table_rows:
         out.append(f"### vs HDF5 \u2014 {n:,} samples\n")
-        out.append("> Without statistics tracking — pure I/O comparison\n")
+        out.append("> Without statistics tracking \u2014 pure I/O comparison\n")
         out.append("> Ratio = MeasFlow / HDF5 \u2014 lower is better "
                    "(\U0001f7e2 \u22641.5x, \U0001f7e1 \u22643x, \U0001f534 >3x)\n")
         out.append("| Operation | C | C# | Python |")
@@ -199,6 +198,26 @@ def main():
             cs = row.get("C#", "\u2014")
             py = row.get("Python", "\u2014")
             out.append(f"| {row['label']} | {c} | {cs} | {py} |")
+        out.append("")
+
+    # ── Streaming write (MeasFlow only — HDF5 has no streaming) ──
+    stream_row = {}
+    for lang in ["C", "C#", "Python"]:
+        if lang not in fmtcmp or n not in fmtcmp[lang]:
+            continue
+        section = fmtcmp[lang][n].get("Streaming write", {})
+        mf = next((v for k, v in section.items() if "MeasFlow" in k), None)
+        if mf and "ms" in mf:
+            stream_row[lang] = fmt_ms(mf["ms"])
+    if stream_row:
+        out.append(f"### Streaming Write \u2014 {n:,} samples, 10 flushes\n")
+        out.append("> MeasFlow-exclusive feature \u2014 HDF5 has no streaming support\n")
+        out.append("| | C | C# | Python |")
+        out.append("|---|---|---|---|")
+        c = stream_row.get("C", "\u2014")
+        cs = stream_row.get("C#", "\u2014")
+        py = stream_row.get("Python", "\u2014")
+        out.append(f"| 10\u00d7 flush | {c} | {cs} | {py} |")
         out.append("")
 
     # ── File size comparison (100K) ──

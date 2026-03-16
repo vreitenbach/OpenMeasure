@@ -282,12 +282,9 @@ int main(void)
         print_result("HDF5 (libhdf5)", bench(read_hdf5, h5_path, data, n, 1, 5));
 #endif
 
-        /* Streaming write */
+        /* Streaming write (MeasFlow only — HDF5 has no streaming support) */
         print_header("Streaming write");
         print_result("MeasFlow (10 flushes)", bench(stream_measflow, meas_path, data, n, 1, 5));
-#ifdef MEAS_HAVE_HDF5
-        print_result("HDF5 - no streaming", bench(stream_hdf5, h5_path, data, n, 1, 5));
-#endif
 
         /* File size */
         write_measflow(meas_path, data, n);

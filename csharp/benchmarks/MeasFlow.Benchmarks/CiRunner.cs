@@ -167,7 +167,7 @@ public static class CiRunner
                 });
                 Console.WriteLine($"  HDF5 (PureHDF):    {r.MedianMs,8:F2} ms");
 
-                // ── Streaming write ──
+                // ── Streaming write (MeasFlow only — HDF5 has no streaming support) ──
                 PrintSection("Streaming write");
                 r = Bench(() =>
                 {
@@ -183,16 +183,6 @@ public static class CiRunner
                     }
                 });
                 Console.WriteLine($"  MeasFlow:          {r.MedianMs,8:F2} ms");
-
-                r = Bench(() =>
-                {
-                    var p = Path.Combine(tmpDir, "stream.h5");
-                    new H5File
-                    {
-                        ["Data"] = new H5Group { ["Signal"] = data }
-                    }.Write(p);
-                });
-                Console.WriteLine($"  HDF5 (PureHDF):    {r.MedianMs,8:F2} ms");
 
                 // ── File size ──
                 PrintSection("File size");

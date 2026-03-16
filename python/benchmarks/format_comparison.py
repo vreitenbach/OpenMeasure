@@ -140,16 +140,8 @@ class BenchmarkSuite:
                     ch.write_bulk(self.data[i * chunk_size : (i + 1) * chunk_size])
                     w.flush()
 
+        # HDF5 has no streaming support — MeasFlow only
         results["MeasFlow (10 flushes)"] = _bench(stream_meas)
-
-        if HAS_H5PY:
-            def stream_h5():
-                p = os.path.join(self.tmp_dir, "stream.h5")
-                with h5py.File(p, "w") as f:
-                    grp = f.create_group("Data")
-                    grp.create_dataset("Signal", data=self.data)
-
-            results["HDF5 -- no streaming"] = _bench(stream_h5)
         return results
 
     def bench_file_size(self) -> dict:
