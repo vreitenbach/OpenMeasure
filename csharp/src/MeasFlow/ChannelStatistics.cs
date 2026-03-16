@@ -1,4 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace MeasFlow;
 
@@ -116,6 +117,74 @@ internal struct StatisticsAccumulator
         _mean += delta / _count;
         double delta2 = value - _mean;
         _m2 += delta * delta2;
+    }
+
+    /// <summary>
+    /// Batch update from a typed span. Specializes for float/double to avoid
+    /// per-element generic dispatch through NumericConverter.ToDouble().
+    /// </summary>
+    public void UpdateBulk<T>(ReadOnlySpan<T> values) where T : unmanaged
+    {
+        if (values.IsEmpty) return;
+
+        // Specialized fast paths avoid generic ToDouble dispatch per element
+        if (typeof(T) == typeof(float))
+        {
+            var floats = MemoryMarshal.Cast<T, float>(values);
+            UpdateBulkFloat(floats);
+            return;
+        }
+        if (typeof(T) == typeof(double))
+        {
+            var doubles = MemoryMarshal.Cast<T, double>(values);
+            UpdateBulkDouble(doubles);
+            return;
+        }
+
+        // Generic fallback
+        foreach (var v in values)
+            Update(NumericConverter.ToDouble(v));
+    }
+
+    private void UpdateBulkFloat(ReadOnlySpan<float> values)
+    {
+        foreach (var fv in values)
+        {
+            double v = fv;
+            _count++;
+            _last = v;
+            if (_count == 1)
+            {
+                _first = v; _min = v; _max = v; _sum = v; _mean = v; _m2 = 0;
+                continue;
+            }
+            if (v < _min) _min = v;
+            if (v > _max) _max = v;
+            _sum += v;
+            double delta = v - _mean;
+            _mean += delta / _count;
+            _m2 += delta * (v - _mean);
+        }
+    }
+
+    private void UpdateBulkDouble(ReadOnlySpan<double> values)
+    {
+        foreach (var v in values)
+        {
+            _count++;
+            _last = v;
+            if (_count == 1)
+            {
+                _first = v; _min = v; _max = v; _sum = v; _mean = v; _m2 = 0;
+                continue;
+            }
+            if (v < _min) _min = v;
+            if (v > _max) _max = v;
+            _sum += v;
+            double delta = v - _mean;
+            _mean += delta / _count;
+            _m2 += delta * (v - _mean);
+        }
     }
 
     public readonly ChannelStatistics ToStatistics() => new()

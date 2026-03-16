@@ -1,4 +1,6 @@
-﻿using System.Buffers.Binary;
+﻿using System.Buffers;
+using System.Buffers.Binary;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using MeasFlow.Bus;
 using MeasFlow.Format;
@@ -278,10 +280,10 @@ public sealed class GroupWriter
         _writer = writer;
     }
 
-    public ChannelWriter<T> AddChannel<T>(string name) where T : unmanaged
+    public ChannelWriter<T> AddChannel<T>(string name, bool trackStatistics = true) where T : unmanaged
     {
         var dataType = MeasDataTypeExtensions.FromClrType<T>();
-        var channel = new ChannelWriter<T>(name, dataType);
+        var channel = new ChannelWriter<T>(name, dataType, trackStatistics);
         ChannelWriters.Add(channel);
         return channel;
     }
@@ -339,23 +341,35 @@ public abstract class ChannelWriter
 
 /// <summary>
 /// Typed channel writer for fixed-size data types.
+/// Uses ArrayPool to minimize allocations and GC pressure.
 /// </summary>
 public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
 {
-    private readonly List<T> _buffer = [];
-    private readonly bool _trackStats = NumericConverter.IsNumeric<T>();
+    private byte[] _buffer;
+    private int _byteCount;
+    private int _sampleCount;
+    private readonly bool _trackStats;
     private StatisticsAccumulator _stats;
 
-    internal ChannelWriter(string name, MeasDataType dataType) : base(name, dataType) { }
+    internal ChannelWriter(string name, MeasDataType dataType, bool trackStatistics = true)
+        : base(name, dataType)
+    {
+        _trackStats = trackStatistics && NumericConverter.IsNumeric<T>();
+        _buffer = ArrayPool<byte>.Shared.Rent(4096);
+    }
 
-    internal override bool HasPendingData => _buffer.Count > 0;
+    internal override bool HasPendingData => _sampleCount > 0;
 
     /// <summary>Current running statistics for this channel.</summary>
     public ChannelStatistics Statistics => _stats.ToStatistics();
 
     public void Write(T value)
     {
-        _buffer.Add(value);
+        int size = Unsafe.SizeOf<T>();
+        EnsureCapacity(_byteCount + size);
+        Unsafe.WriteUnaligned(ref _buffer[_byteCount], value);
+        _byteCount += size;
+        _sampleCount++;
         if (_trackStats) _stats.Update(NumericConverter.ToDouble(value));
     }
 
@@ -364,20 +378,26 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
     {
         if (values.IsEmpty) return;
 
-        // Bulk copy via CollectionsMarshal (no per-element Add overhead)
-        int startCount = _buffer.Count;
-        int needed = startCount + values.Length;
-        if (_buffer.Capacity < needed)
-            _buffer.Capacity = needed;
-        CollectionsMarshal.SetCount(_buffer, needed);
-        values.CopyTo(CollectionsMarshal.AsSpan(_buffer).Slice(startCount));
+        // Direct byte copy — no intermediate List<T>
+        var bytes = MemoryMarshal.AsBytes(values);
+        EnsureCapacity(_byteCount + bytes.Length);
+        bytes.CopyTo(_buffer.AsSpan(_byteCount));
+        _byteCount += bytes.Length;
+        _sampleCount += values.Length;
 
-        // Update statistics from the span directly (avoids List indexing)
         if (_trackStats)
-        {
-            foreach (var v in values)
-                _stats.Update(NumericConverter.ToDouble(v));
-        }
+            _stats.UpdateBulk(values);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void EnsureCapacity(int needed)
+    {
+        if (needed <= _buffer.Length) return;
+        int newSize = Math.Max(needed, _buffer.Length * 2);
+        var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
+        _buffer.AsSpan(0, _byteCount).CopyTo(newBuf);
+        ArrayPool<byte>.Shared.Return(_buffer);
+        _buffer = newBuf;
     }
 
     internal override void WriteStatistics(Dictionary<string, MeasValue> props)
@@ -387,15 +407,16 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
 
     internal override void FlushToStream(Stream stream, int globalIndex)
     {
-        if (_buffer.Count == 0) return;
+        if (_sampleCount == 0) return;
 
-        var span = CollectionsMarshal.AsSpan(_buffer);
-        var bytes = MemoryMarshal.AsBytes(span);
+        DataEncoder.WriteChunkHeader(stream, globalIndex, _sampleCount, _byteCount);
+        stream.Write(_buffer.AsSpan(0, _byteCount));
 
-        DataEncoder.WriteChunkHeader(stream, globalIndex, _buffer.Count, bytes.Length);
-        stream.Write(bytes);
-
-        _buffer.Clear();
+        // Return large buffer to pool, start with small fresh buffer
+        ArrayPool<byte>.Shared.Return(_buffer);
+        _buffer = ArrayPool<byte>.Shared.Rent(4096);
+        _byteCount = 0;
+        _sampleCount = 0;
     }
 }
 

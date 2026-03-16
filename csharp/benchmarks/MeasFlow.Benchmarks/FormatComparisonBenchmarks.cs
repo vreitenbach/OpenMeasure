@@ -80,7 +80,7 @@ public class FormatComparisonBenchmarks
         var group = writer.AddGroup("Data");
         var channels = new ChannelWriter<float>[10];
         for (int c = 0; c < 10; c++)
-            channels[c] = group.AddChannel<float>($"Ch{c}");
+            channels[c] = group.AddChannel<float>($"Ch{c}", trackStatistics: false);
 
         for (int i = 0; i < SampleCount; i++)
             for (int c = 0; c < 10; c++)
@@ -126,7 +126,7 @@ public class FormatComparisonBenchmarks
         var path = Path.Combine(_tempDir, $"stream_{SampleCount}.meas");
         using var writer = MeasFile.CreateWriter(path);
         var group = writer.AddGroup("Data");
-        var ch = group.AddChannel<float>("Signal");
+        var ch = group.AddChannel<float>("Signal", trackStatistics: false);
 
         int chunkSize = SampleCount / 10;
         for (int chunk = 0; chunk < 10; chunk++)
@@ -156,12 +156,7 @@ public class FormatComparisonBenchmarks
     // ── File Size ────────────────────────────────────────────────────────
 
     [BenchmarkCategory("File Size"), Benchmark(Description = "MeasFlow")]
-    public long FileSize_MeasFlow()
-    {
-        var path = Path.Combine(_tempDir, $"size_{SampleCount}.meas");
-        WriteMeasFlowFile(path, _data);
-        return new FileInfo(path).Length;
-    }
+    public long FileSize_MeasFlow() => Write_MeasFlow_1ch();
 
     [BenchmarkCategory("File Size"), Benchmark(Description = "HDF5 (PureHDF)")]
     public long FileSize_HDF5()
@@ -186,7 +181,8 @@ public class FormatComparisonBenchmarks
     {
         using var writer = MeasFile.CreateWriter(path);
         var group = writer.AddGroup("Data");
-        var ch = group.AddChannel<float>("Signal");
+        // Disable stats for fair comparison — PureHDF doesn't compute them either
+        var ch = group.AddChannel<float>("Signal", trackStatistics: false);
         ch.Write(data.AsSpan());
     }
 
