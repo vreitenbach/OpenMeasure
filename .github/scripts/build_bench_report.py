@@ -30,21 +30,39 @@ def extract_overview_row(py_txt: str, c_txt: str, cs_md: str, samples: str = "10
     """Extract write/read/stream times for the overview table."""
     row = {"Write": {}, "Read": {}, "Stream": {}}
 
-    # Python
+    # Python — only take values from the 100K section (first occurrence)
+    in_target = False
+    py_found = set()
     for line in py_txt.splitlines():
-        m = re.match(r"\s+(Write|Read|Stream)\s+\(Python\):\s+([\d.]+)\s+ms", line)
-        if m:
-            op = m.group(1)
-            if op in row:
-                row[op]["Python"] = float(m.group(2))
+        if f"{int(samples):,}" in line or f"{samples}" in line:
+            in_target = True
+            py_found = set()
+        elif re.search(r"\d{1,3}(,\d{3})+\s+samples", line) and in_target:
+            break  # moved to next sample count section
+        if in_target:
+            m = re.match(r"\s+(Write|Read|Stream)\s+\(Python\):\s+([\d.]+)\s+ms", line)
+            if m and m.group(1) not in py_found:
+                op = m.group(1)
+                if op in row:
+                    row[op]["Python"] = float(m.group(2))
+                    py_found.add(op)
 
-    # C
+    # C — only take values from the 100K section (first occurrence)
+    in_target = False
+    c_found = set()
     for line in c_txt.splitlines():
-        m = re.match(r"\s+(Write|Read|Stream)\s+\(C\):\s+([\d.]+)\s+ms", line)
-        if m:
-            op = m.group(1)
-            if op in row:
-                row[op]["C"] = float(m.group(2))
+        if samples in line:
+            in_target = True
+            c_found = set()
+        elif re.search(r"\d{4,}\s+samples", line) and in_target:
+            break
+        if in_target:
+            m = re.match(r"\s+(Write|Read|Stream)\s+\(C\):\s+([\d.]+)\s+ms", line)
+            if m and m.group(1) not in c_found:
+                op = m.group(1)
+                if op in row:
+                    row[op]["C"] = float(m.group(2))
+                    c_found.add(op)
 
     # C# from BenchmarkDotNet table
     for line in cs_md.splitlines():
@@ -103,14 +121,23 @@ def extract_hdf5_comparison(py_txt: str, c_txt: str, cs_md: str) -> list:
     if cs_mf and cs_hdf:
         rows.append(("C#", cs_mf, cs_hdf))
 
-    # Python
+    # Python — only from 100K section
+    in_100k = False
     section = ""
     py_mf = py_hdf = None
     for line in py_txt.splitlines():
+        if "100,000" in line or "100000" in line:
+            in_100k = True
+        elif re.search(r"1[,.]000[,.]000", line):
+            in_100k = False
+        if not in_100k:
+            continue
         if "Write 1 channel" in line:
             section = "write1"
             py_mf = py_hdf = None
         elif "Write 10" in line or "Read" in line or "Stream" in line or "File size" in line:
+            if section == "write1" and py_mf and py_hdf:
+                break
             section = ""
         if section == "write1":
             m = re.match(r"\s+MeasFlow\s+([\d.]+)\s+ms", line)
