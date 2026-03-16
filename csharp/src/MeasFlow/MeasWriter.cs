@@ -102,6 +102,11 @@ public sealed class MeasWriter : IDisposable
 
         _stream.Flush();
         _stream.Dispose();
+
+        // Return pooled buffers from all channels
+        foreach (var group in _groups)
+            foreach (var channel in group.ChannelWriters)
+                channel.ReleaseResources();
     }
 
     private void EnsureMetadataWritten()
@@ -337,6 +342,9 @@ public abstract class ChannelWriter
 
     /// <summary>Write statistics to properties dictionary. Override in typed writers.</summary>
     internal virtual void WriteStatistics(Dictionary<string, MeasValue> props) { }
+
+    /// <summary>Return any pooled resources. Called from MeasWriter.Dispose.</summary>
+    internal virtual void ReleaseResources() { }
 }
 
 /// <summary>
@@ -345,7 +353,7 @@ public abstract class ChannelWriter
 /// </summary>
 public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
 {
-    private byte[] _buffer;
+    private byte[]? _buffer;
     private int _byteCount;
     private int _sampleCount;
     private readonly bool _trackStats;
@@ -355,7 +363,6 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
         : base(name, dataType)
     {
         _trackStats = trackStatistics && NumericConverter.IsNumeric<T>();
-        _buffer = ArrayPool<byte>.Shared.Rent(4096);
     }
 
     internal override bool HasPendingData => _sampleCount > 0;
@@ -367,7 +374,7 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
     {
         int size = Unsafe.SizeOf<T>();
         EnsureCapacity(_byteCount + size);
-        Unsafe.WriteUnaligned(ref _buffer[_byteCount], value);
+        Unsafe.WriteUnaligned(ref _buffer![_byteCount], value);
         _byteCount += size;
         _sampleCount++;
         if (_trackStats) _stats.Update(NumericConverter.ToDouble(value));
@@ -392,6 +399,11 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void EnsureCapacity(int needed)
     {
+        if (_buffer == null)
+        {
+            _buffer = ArrayPool<byte>.Shared.Rent(Math.Max(needed, 4096));
+            return;
+        }
         if (needed <= _buffer.Length) return;
         int newSize = Math.Max(needed, _buffer.Length * 2);
         var newBuf = ArrayPool<byte>.Shared.Rent(newSize);
@@ -412,11 +424,20 @@ public sealed class ChannelWriter<T> : ChannelWriter where T : unmanaged
         DataEncoder.WriteChunkHeader(stream, globalIndex, _sampleCount, _byteCount);
         stream.Write(_buffer.AsSpan(0, _byteCount));
 
-        // Return large buffer to pool, start with small fresh buffer
-        ArrayPool<byte>.Shared.Return(_buffer);
-        _buffer = ArrayPool<byte>.Shared.Rent(4096);
+        // Return large buffer to pool, start fresh on next write
+        ArrayPool<byte>.Shared.Return(_buffer!);
+        _buffer = null;
         _byteCount = 0;
         _sampleCount = 0;
+    }
+
+    internal override void ReleaseResources()
+    {
+        if (_buffer != null)
+        {
+            ArrayPool<byte>.Shared.Return(_buffer);
+            _buffer = null;
+        }
     }
 }
 

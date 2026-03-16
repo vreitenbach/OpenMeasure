@@ -90,9 +90,9 @@ class _StatisticsAccumulator:
         delta = arr_mean - self._mean
         new_mean = self._mean + delta * n / new_count
 
-        # Variance of the new batch
+        # Variance of the new batch (avoid allocating temporary arrays)
         if n > 1:
-            arr_m2 = float(np.sum((arr_f64 - arr_mean) ** 2))
+            arr_m2 = float(arr_f64.var(ddof=0)) * n
         else:
             arr_m2 = 0.0
 
@@ -223,7 +223,7 @@ class ChannelWriter:
         """Clear all buffered data after flush."""
         self._buffers.clear()
         self._samples.clear()
-        # Keep _sample_count for statistics (reset is per-flush tracking not needed)
+        self._sample_count = 0
 
     def _to_channel_def(self, with_stats: bool = False) -> ChannelDef:
         props = {
