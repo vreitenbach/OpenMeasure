@@ -31,7 +31,7 @@
 
 /* ── DLL export/import macro ────────────────────────────────────────────── */
 
-#if defined(MEASFLOW_SHARED) && defined(_MSC_VER)
+#if defined(MEASFLOW_SHARED) && (defined(_WIN32) || defined(__CYGWIN__))
   #ifdef MEASFLOW_EXPORTS
     #define MEAS_API __declspec(dllexport)
   #else
