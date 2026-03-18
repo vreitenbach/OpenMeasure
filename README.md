@@ -256,7 +256,6 @@ c/                            C (C99) implementation
 ## Roadmap
 
 - [ ] Official vcpkg registry publication (upstream [microsoft/vcpkg](https://github.com/microsoft/vcpkg))
-- [x] Memory-mapped I/O for large files
 - [ ] MATLAB integration
 - [ ] Excel plugin
 
