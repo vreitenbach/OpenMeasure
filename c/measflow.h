@@ -29,6 +29,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* ── DLL export/import macro ────────────────────────────────────────────── */
+
+#if defined(MEASFLOW_SHARED) && defined(_MSC_VER)
+  #ifdef MEASFLOW_EXPORTS
+    #define MEAS_API __declspec(dllexport)
+  #else
+    #define MEAS_API __declspec(dllimport)
+  #endif
+#elif defined(MEASFLOW_SHARED) && defined(__GNUC__)
+  #define MEAS_API __attribute__((visibility("default")))
+#else
+  #define MEAS_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -143,52 +157,52 @@ typedef struct MeasReader MeasReader;
  * The file is mapped read-only; the OS pages in data on demand.
  * @return  Non-NULL handle on success; NULL on error (invalid file, OOM, etc.).
  */
-MeasReader *meas_reader_open(const char *path);
+MEAS_API MeasReader *meas_reader_open(const char *path);
 
 /** Free all memory and close the reader. */
-void meas_reader_close(MeasReader *reader);
+MEAS_API void meas_reader_close(MeasReader *reader);
 
 /** Return the number of groups in the file. */
-int meas_reader_group_count(const MeasReader *reader);
+MEAS_API int meas_reader_group_count(const MeasReader *reader);
 
 /**
  * Return the group at the given zero-based index.
  * @return  Pointer to the group (owned by the reader), or NULL if out-of-range.
  */
-const MeasGroupData *meas_reader_group(const MeasReader *reader, int group_idx);
+MEAS_API const MeasGroupData *meas_reader_group(const MeasReader *reader, int group_idx);
 
 /**
  * Find a group by name.
  * @return  Pointer to the group (owned by the reader), or NULL if not found.
  */
-const MeasGroupData *meas_reader_group_by_name(const MeasReader *reader, const char *name);
+MEAS_API const MeasGroupData *meas_reader_group_by_name(const MeasReader *reader, const char *name);
 
 /**
  * Find a channel within a group by name.
  * @return  Pointer to the channel (owned by the reader), or NULL if not found.
  */
-const MeasChannelData *meas_group_channel_by_name(const MeasGroupData *group, const char *name);
+MEAS_API const MeasChannelData *meas_group_channel_by_name(const MeasGroupData *group, const char *name);
 
 /* ── Typed read helpers ──────────────────────────────────────────────────────
  * All functions copy up to `max_count` samples from `ch->data` into `out`.
  * @return  Number of samples copied, or -1 on type mismatch.
  */
-int64_t meas_channel_read_f32(const MeasChannelData *ch, float    *out, int64_t max_count);
-int64_t meas_channel_read_f64(const MeasChannelData *ch, double   *out, int64_t max_count);
-int64_t meas_channel_read_i8 (const MeasChannelData *ch, int8_t   *out, int64_t max_count);
-int64_t meas_channel_read_i16(const MeasChannelData *ch, int16_t  *out, int64_t max_count);
-int64_t meas_channel_read_i32(const MeasChannelData *ch, int32_t  *out, int64_t max_count);
-int64_t meas_channel_read_i64(const MeasChannelData *ch, int64_t  *out, int64_t max_count);
-int64_t meas_channel_read_u8 (const MeasChannelData *ch, uint8_t  *out, int64_t max_count);
-int64_t meas_channel_read_u16(const MeasChannelData *ch, uint16_t *out, int64_t max_count);
-int64_t meas_channel_read_u32(const MeasChannelData *ch, uint32_t *out, int64_t max_count);
-int64_t meas_channel_read_u64(const MeasChannelData *ch, uint64_t *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_f32(const MeasChannelData *ch, float    *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_f64(const MeasChannelData *ch, double   *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_i8 (const MeasChannelData *ch, int8_t   *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_i16(const MeasChannelData *ch, int16_t  *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_i32(const MeasChannelData *ch, int32_t  *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_i64(const MeasChannelData *ch, int64_t  *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_u8 (const MeasChannelData *ch, uint8_t  *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_u16(const MeasChannelData *ch, uint16_t *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_u32(const MeasChannelData *ch, uint32_t *out, int64_t max_count);
+MEAS_API int64_t meas_channel_read_u64(const MeasChannelData *ch, uint64_t *out, int64_t max_count);
 
 /**
  * Read MEAS_TIMESTAMP or MEAS_TIMESPAN samples as nanosecond int64 values.
  * @return  Number of samples copied, or -1 on type mismatch.
  */
-int64_t meas_channel_read_timestamp(const MeasChannelData *ch, int64_t *out_ns, int64_t max_count);
+MEAS_API int64_t meas_channel_read_timestamp(const MeasChannelData *ch, int64_t *out_ns, int64_t max_count);
 
 /**
  * Iterate over variable-length frames in a MEAS_BINARY or MEAS_STRING channel.
@@ -201,8 +215,8 @@ int64_t meas_channel_read_timestamp(const MeasChannelData *ch, int64_t *out_ns, 
  *   const uint8_t *frame; int32_t len;
  *   while (meas_channel_next_frame(ch, &state, &frame, &len) == 1) { ... }
  */
-int meas_channel_next_frame(const MeasChannelData *ch, int64_t *state,
-                             const uint8_t **frame_data, int32_t *frame_length);
+MEAS_API int meas_channel_next_frame(const MeasChannelData *ch, int64_t *state,
+                                      const uint8_t **frame_data, int32_t *frame_length);
 
 /* ── §10 Bus Metadata types ───────────────────────────────────────────────── */
 
@@ -471,7 +485,7 @@ typedef struct MeasChannelWriter MeasChannelWriter;
  * Create a new .meas file for writing.
  * @return  Non-NULL writer handle on success; NULL on error.
  */
-MeasWriter *meas_writer_open(const char *path);
+MEAS_API MeasWriter *meas_writer_open(const char *path);
 
 /**
  * Set compression algorithm for data segments.
@@ -479,35 +493,35 @@ MeasWriter *meas_writer_open(const char *path);
  * Requires the library to be built with MEAS_HAVE_LZ4 / MEAS_HAVE_ZSTD.
  * @return  0 on success, -1 if compression is not available.
  */
-int meas_writer_set_compression(MeasWriter *writer, MeasCompression compression);
+MEAS_API int meas_writer_set_compression(MeasWriter *writer, MeasCompression compression);
 
 /**
  * Flush all buffered samples to the file as a new Data segment.
  * May be called multiple times to produce a multi-segment (streaming) file.
  * @return  0 on success, -1 on error.
  */
-int meas_writer_flush(MeasWriter *writer);
+MEAS_API int meas_writer_flush(MeasWriter *writer);
 
 /**
  * Flush remaining data, finalise the file header, and close the file.
  * The writer pointer is invalid after this call.
  */
-void meas_writer_close(MeasWriter *writer);
+MEAS_API void meas_writer_close(MeasWriter *writer);
 
 /**
  * Add a named group to the writer.
  * Must be called before any data is written (i.e., before the first flush).
  * @return  Non-NULL group handle on success; NULL on error.
  */
-MeasGroupWriter *meas_writer_add_group(MeasWriter *writer, const char *name);
+MEAS_API MeasGroupWriter *meas_writer_add_group(MeasWriter *writer, const char *name);
 
 /**
  * Add a named channel to a group.
  * @param dtype  One of the MEAS_* data type constants.
  * @return  Non-NULL channel handle on success; NULL on error.
  */
-MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *name,
-                                           MeasDataType dtype);
+MEAS_API MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *name,
+                                                    MeasDataType dtype);
 
 /**
  * Enable or disable automatic statistics tracking for a channel.
@@ -516,39 +530,39 @@ MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *na
  * are not needed.  Must be called before the first write.
  * @param enable  Non-zero to enable (default), zero to disable.
  */
-void meas_channel_set_statistics(MeasChannelWriter *ch, int enable);
+MEAS_API void meas_channel_set_statistics(MeasChannelWriter *ch, int enable);
 
 /* ── Typed write helpers ─────────────────────────────────────────────────────
  * Array variants append `count` samples from `data[0..count-1]`.
  * Single-value variants append exactly one sample.
  * @return  0 on success, -1 on error.
  */
-int meas_channel_write_f32 (MeasChannelWriter *ch, const float    *data, int64_t count);
-int meas_channel_write_f64 (MeasChannelWriter *ch, const double   *data, int64_t count);
-int meas_channel_write_i8  (MeasChannelWriter *ch, const int8_t   *data, int64_t count);
-int meas_channel_write_i16 (MeasChannelWriter *ch, const int16_t  *data, int64_t count);
-int meas_channel_write_i32 (MeasChannelWriter *ch, const int32_t  *data, int64_t count);
-int meas_channel_write_i64 (MeasChannelWriter *ch, const int64_t  *data, int64_t count);
-int meas_channel_write_u8  (MeasChannelWriter *ch, const uint8_t  *data, int64_t count);
-int meas_channel_write_u16 (MeasChannelWriter *ch, const uint16_t *data, int64_t count);
-int meas_channel_write_u32 (MeasChannelWriter *ch, const uint32_t *data, int64_t count);
-int meas_channel_write_u64 (MeasChannelWriter *ch, const uint64_t *data, int64_t count);
+MEAS_API int meas_channel_write_f32 (MeasChannelWriter *ch, const float    *data, int64_t count);
+MEAS_API int meas_channel_write_f64 (MeasChannelWriter *ch, const double   *data, int64_t count);
+MEAS_API int meas_channel_write_i8  (MeasChannelWriter *ch, const int8_t   *data, int64_t count);
+MEAS_API int meas_channel_write_i16 (MeasChannelWriter *ch, const int16_t  *data, int64_t count);
+MEAS_API int meas_channel_write_i32 (MeasChannelWriter *ch, const int32_t  *data, int64_t count);
+MEAS_API int meas_channel_write_i64 (MeasChannelWriter *ch, const int64_t  *data, int64_t count);
+MEAS_API int meas_channel_write_u8  (MeasChannelWriter *ch, const uint8_t  *data, int64_t count);
+MEAS_API int meas_channel_write_u16 (MeasChannelWriter *ch, const uint16_t *data, int64_t count);
+MEAS_API int meas_channel_write_u32 (MeasChannelWriter *ch, const uint32_t *data, int64_t count);
+MEAS_API int meas_channel_write_u64 (MeasChannelWriter *ch, const uint64_t *data, int64_t count);
 
 /** Write MEAS_TIMESTAMP / MEAS_TIMESPAN values (nanoseconds as int64). */
-int meas_channel_write_timestamp(MeasChannelWriter *ch, const int64_t *ns_values, int64_t count);
+MEAS_API int meas_channel_write_timestamp(MeasChannelWriter *ch, const int64_t *ns_values, int64_t count);
 
 /* Single-sample convenience wrappers */
-int meas_channel_write_f32_one(MeasChannelWriter *ch, float    value);
-int meas_channel_write_f64_one(MeasChannelWriter *ch, double   value);
-int meas_channel_write_i32_one(MeasChannelWriter *ch, int32_t  value);
-int meas_channel_write_i64_one(MeasChannelWriter *ch, int64_t  value);
-int meas_channel_write_bool_one(MeasChannelWriter *ch, int value);
+MEAS_API int meas_channel_write_f32_one(MeasChannelWriter *ch, float    value);
+MEAS_API int meas_channel_write_f64_one(MeasChannelWriter *ch, double   value);
+MEAS_API int meas_channel_write_i32_one(MeasChannelWriter *ch, int32_t  value);
+MEAS_API int meas_channel_write_i64_one(MeasChannelWriter *ch, int64_t  value);
+MEAS_API int meas_channel_write_bool_one(MeasChannelWriter *ch, int value);
 
 /**
  * Write a single variable-length binary frame (MEAS_BINARY channel).
  * Stores [int32: length][bytes] per the §7 wire format.
  */
-int meas_channel_write_frame(MeasChannelWriter *ch, const uint8_t *frame, int32_t length);
+MEAS_API int meas_channel_write_frame(MeasChannelWriter *ch, const uint8_t *frame, int32_t length);
 
 /**
  * Write a single UTF-8 string sample to a MEAS_STRING channel (§7).
@@ -558,7 +572,7 @@ int meas_channel_write_frame(MeasChannelWriter *ch, const uint8_t *frame, int32_
  * Strings longer than INT32_MAX bytes are rejected with a return value of -1.
  * @return  0 on success, -1 on error.
  */
-int meas_channel_write_string(MeasChannelWriter *ch, const char *str);
+MEAS_API int meas_channel_write_string(MeasChannelWriter *ch, const char *str);
 
 /* ── §10 Bus Metadata API ─────────────────────────────────────────────────── */
 
@@ -568,44 +582,44 @@ int meas_channel_write_string(MeasChannelWriter *ch, const char *str);
  * is set to the byte count.
  * @return  0 on success, -1 on error.
  */
-int meas_bus_metadata_encode(const MeasBusMetadata *meta,
-                              uint8_t **out_data, int32_t *out_len);
+MEAS_API int meas_bus_metadata_encode(const MeasBusMetadata *meta,
+                                       uint8_t **out_data, int32_t *out_len);
 
 /**
  * Decode a MeasBusMetadata blob (as stored in the `MEAS.bus_def` property).
  * *out_meta is heap-allocated; free with meas_bus_metadata_free().
  * @return  0 on success, -1 on error.
  */
-int meas_bus_metadata_decode(const uint8_t *data, int32_t len,
-                              MeasBusMetadata **out_meta);
+MEAS_API int meas_bus_metadata_decode(const uint8_t *data, int32_t len,
+                                       MeasBusMetadata **out_meta);
 
 /**
  * Free a MeasBusMetadata returned by meas_bus_metadata_decode().
  * Also accepts NULL (no-op).
  */
-void meas_bus_metadata_free(MeasBusMetadata *meta);
+MEAS_API void meas_bus_metadata_free(MeasBusMetadata *meta);
 
 /**
  * Set group property `MEAS.bus_def` by encoding `meta` as a binary blob.
  * Must be called before the first flush.
  * @return  0 on success, -1 on error.
  */
-int meas_group_set_bus_def(MeasGroupWriter *group, const MeasBusMetadata *meta);
+MEAS_API int meas_group_set_bus_def(MeasGroupWriter *group, const MeasBusMetadata *meta);
 
 /**
  * Set an arbitrary binary property on a group writer.
  * Must be called before the first flush.
  * @return  0 on success, -1 on error.
  */
-int meas_group_set_property_bin(MeasGroupWriter *group, const char *key,
-                                 const uint8_t *data, int32_t len);
+MEAS_API int meas_group_set_property_bin(MeasGroupWriter *group, const char *key,
+                                          const uint8_t *data, int32_t len);
 
 /**
  * Find the `MEAS.bus_def` binary property in a group and decode it.
  * *out_meta is heap-allocated; free with meas_bus_metadata_free().
  * @return  0 on success, -1 if property is absent or decoding fails.
  */
-int meas_group_read_bus_def(const MeasGroupData *group, MeasBusMetadata **out_meta);
+MEAS_API int meas_group_read_bus_def(const MeasGroupData *group, MeasBusMetadata **out_meta);
 
 /* ── §11 Typed frame write helpers ───────────────────────────────────────── */
 
@@ -614,14 +628,14 @@ int meas_group_read_bus_def(const MeasGroupData *group, MeasBusMetadata **out_me
  * Wire format: [uint32: arb_id][byte: dlc][byte: flags][payload: dlc bytes].
  * @return  0 on success, -1 on error.
  */
-int meas_channel_write_can_frame(MeasChannelWriter *ch, const MeasCanFrame *frame);
+MEAS_API int meas_channel_write_can_frame(MeasChannelWriter *ch, const MeasCanFrame *frame);
 
 /**
  * Write a single LIN frame to a MEAS_BINARY channel.
  * Wire format: [byte: frame_id][byte: dlc][byte: nad][byte: checksum_type][payload: dlc bytes].
  * @return  0 on success, -1 on error.
  */
-int meas_channel_write_lin_frame(MeasChannelWriter *ch, const MeasLinFrame *frame);
+MEAS_API int meas_channel_write_lin_frame(MeasChannelWriter *ch, const MeasLinFrame *frame);
 
 /**
  * Write a single FlexRay frame to a MEAS_BINARY channel.
@@ -629,7 +643,7 @@ int meas_channel_write_lin_frame(MeasChannelWriter *ch, const MeasLinFrame *fram
  *              [uint16: payload_length][payload: payload_length bytes].
  * @return  0 on success, -1 on error.
  */
-int meas_channel_write_flexray_frame(MeasChannelWriter *ch, const MeasFlexRayFrame *frame);
+MEAS_API int meas_channel_write_flexray_frame(MeasChannelWriter *ch, const MeasFlexRayFrame *frame);
 
 /**
  * Write a single Ethernet frame to a MEAS_BINARY channel.
@@ -637,7 +651,7 @@ int meas_channel_write_flexray_frame(MeasChannelWriter *ch, const MeasFlexRayFra
  *              [uint16: payload_length][payload: payload_length bytes].
  * @return  0 on success, -1 on error.
  */
-int meas_channel_write_ethernet_frame(MeasChannelWriter *ch, const MeasEthernetFrame *frame);
+MEAS_API int meas_channel_write_ethernet_frame(MeasChannelWriter *ch, const MeasEthernetFrame *frame);
 
 /* ── §11 Typed frame read helpers ────────────────────────────────────────── */
 
@@ -647,31 +661,31 @@ int meas_channel_write_ethernet_frame(MeasChannelWriter *ch, const MeasEthernetF
  * Call with *state = 0 to start; advances *state on each call.
  * @return  1 while frames remain, 0 when exhausted, -1 on error.
  */
-int meas_channel_next_can_frame(const MeasChannelData *ch, int64_t *state,
-                                 MeasCanFrame *out);
+MEAS_API int meas_channel_next_can_frame(const MeasChannelData *ch, int64_t *state,
+                                          MeasCanFrame *out);
 
 /**
  * Decode the next LIN frame from a MEAS_BINARY channel.
  * @return  1 while frames remain, 0 when exhausted, -1 on error.
  */
-int meas_channel_next_lin_frame(const MeasChannelData *ch, int64_t *state,
-                                 MeasLinFrame *out);
+MEAS_API int meas_channel_next_lin_frame(const MeasChannelData *ch, int64_t *state,
+                                          MeasLinFrame *out);
 
 /**
  * Decode the next FlexRay frame from a MEAS_BINARY channel.
  * out->payload points into ch->data (zero-copy); valid while the reader is open.
  * @return  1 while frames remain, 0 when exhausted, -1 on error.
  */
-int meas_channel_next_flexray_frame(const MeasChannelData *ch, int64_t *state,
-                                     MeasFlexRayFrame *out);
+MEAS_API int meas_channel_next_flexray_frame(const MeasChannelData *ch, int64_t *state,
+                                              MeasFlexRayFrame *out);
 
 /**
  * Decode the next Ethernet frame from a MEAS_BINARY channel.
  * out->payload points into ch->data (zero-copy); valid while the reader is open.
  * @return  1 while frames remain, 0 when exhausted, -1 on error.
  */
-int meas_channel_next_ethernet_frame(const MeasChannelData *ch, int64_t *state,
-                                      MeasEthernetFrame *out);
+MEAS_API int meas_channel_next_ethernet_frame(const MeasChannelData *ch, int64_t *state,
+                                               MeasEthernetFrame *out);
 
 #ifdef __cplusplus
 }

@@ -13,6 +13,11 @@ target_include_directories(measflow PUBLIC
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
+if(BUILD_SHARED_LIBS)
+    target_compile_definitions(measflow PUBLIC MEASFLOW_SHARED)
+    target_compile_definitions(measflow PRIVATE MEASFLOW_EXPORTS)
+endif()
+
 if(MSVC)
     target_compile_options(measflow PRIVATE /W4 /WX)
 else()
