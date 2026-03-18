@@ -29,7 +29,7 @@ dotnet add package MeasFlow
 # Python
 pip install measflow
 
-# C (vcpkg custom registry — requires vcpkg-configuration.json in your project)
+# C (vcpkg — custom registry until official vcpkg publication)
 vcpkg install measflow
 ```
 
@@ -60,7 +60,7 @@ python quickstart/quickstart.py
 
 ### C Quick Start
 
-To use measflow via vcpkg, add a `vcpkg-configuration.json` to your project:
+To use measflow via vcpkg, add a `vcpkg-configuration.json` to your project (required until the port is published to the official vcpkg registry):
 
 ```json
 {
@@ -255,7 +255,7 @@ c/                            C (C99) implementation
 
 ## Roadmap
 
-- [ ] Memory-mapped I/O for large files
+- [ ] Official vcpkg registry publication (upstream [microsoft/vcpkg](https://github.com/microsoft/vcpkg))
 - [ ] MATLAB integration
 - [ ] Excel plugin
 
