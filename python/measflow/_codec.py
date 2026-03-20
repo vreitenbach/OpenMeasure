@@ -202,9 +202,28 @@ class GroupDef:
     channels: list[ChannelDef] = field(default_factory=list)
 
 
-def encode_metadata(groups: list[GroupDef]) -> bytes:
-    """Encode group/channel definitions to metadata bytes."""
-    parts = [struct.pack("<i", len(groups))]
+FLAG_EXTENDED_METADATA = 0x0001
+
+# Current metadata format version (§6)
+META_MAJOR = 0
+META_MINOR = 1
+
+
+def encode_metadata(groups: list[GroupDef],
+                    file_properties: dict[str, MeasValue] | None = None,
+                    extended: bool = False) -> bytes:
+    """Encode group/channel definitions to metadata bytes.
+
+    When *extended* is True (or *file_properties* is non-empty), the output
+    starts with [metaMajor][metaMinor][fileProps...] (the caller must also set
+    Flags bit 0 in the file header).
+    """
+    extended = extended or bool(file_properties)
+    parts: list[bytes] = []
+    if extended:
+        parts.append(struct.pack("BB", META_MAJOR, META_MINOR))
+        parts.append(encode_properties(file_properties or {}))
+    parts.append(struct.pack("<i", len(groups)))
     for g in groups:
         parts.append(write_string_bytes(g.name))
         parts.append(encode_properties(g.properties))
@@ -216,9 +235,26 @@ def encode_metadata(groups: list[GroupDef]) -> bytes:
     return b"".join(parts)
 
 
-def decode_metadata(data: bytes) -> list[GroupDef]:
-    """Decode metadata bytes into group definitions."""
+def decode_metadata(data: bytes,
+                    extended_metadata: bool = False,
+                    file_properties_out: dict[str, MeasValue] | None = None,
+                    ) -> list[GroupDef]:
+    """Decode metadata bytes into group definitions.
+
+    When *extended_metadata* is True, the data starts with a 2-byte version
+    prefix followed by file-level properties before the group count.
+    """
     offset = 0
+    if extended_metadata:
+        major = data[offset]; offset += 1
+        minor = data[offset]; offset += 1
+        if major > META_MAJOR:
+            raise ValueError(
+                f"Unsupported metadata version {major}.{minor} "
+                f"(max supported: {META_MAJOR}.{META_MINOR})")
+        props, offset = decode_properties(data, offset)
+        if file_properties_out is not None:
+            file_properties_out.update(props)
     (group_count,) = struct.unpack_from("<i", data, offset)
     offset += 4
 

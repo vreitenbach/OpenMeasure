@@ -7,7 +7,7 @@
 
     <!-- NuGet package metadata -->
     <PackageId>MeasFlow</PackageId>
-    <Version>0.3.1</Version>
+    <Version>0.4.0</Version>
     <Authors>vreitenbach</Authors>
     <Description>High-performance binary measurement data format — .NET reader/writer with streaming, compression (LZ4/Zstd), bus data (CAN/LIN/FlexRay/Ethernet), and channel statistics.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

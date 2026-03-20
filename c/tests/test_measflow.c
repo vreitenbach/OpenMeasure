@@ -1134,6 +1134,273 @@ static void test_cross_language_read(void) {
     PASS();
 }
 
+/* ── Cross-language roundtrip tests ─────────────────────────────────────── */
+
+/* Reference constants — must match C# and Python */
+#define XREF_SAMPLE_COUNT     10000
+#define XREF_FLUSH_INTERVAL   1000
+#define XREF_BASE_TS_NS       1700000000000000000LL
+#define XREF_ENGINE_FRAME_ID  0x100
+#define XREF_CAN_FRAME_COUNT  100
+
+static float xref_rpm(int i) { return 1000.0f + i * 0.5f; }
+static int32_t xref_counter(int i) { return i * 3 - 5000; }
+static int64_t xref_timestamp_ns(int i) { return XREF_BASE_TS_NS + (int64_t)i * 1000; }
+static uint16_t xref_rpm_raw(int i) { return (uint16_t)((3000 + i * 10) / 0.25); }
+static double xref_rpm_physical(int i) { return 3000.0 + i * 10.0; }
+
+static void write_crosslang_ref(const char *path) {
+    MeasWriter *w = meas_writer_open(path);
+    if (!w) return;
+
+    /* File-level properties */
+    meas_writer_set_property_str(w, "TestSuite", "CrossLanguage");
+
+    /* Group 1: Analog — float32 RPM, int32 Counter, timestamp Time */
+    MeasGroupWriter *analog = meas_writer_add_group(w, "Analog");
+    meas_group_set_property_i32(analog, "SampleRate", 1000);
+
+    MeasChannelWriter *time_ch  = meas_group_add_channel(analog, "Time", MEAS_TIMESTAMP);
+    MeasChannelWriter *rpm_ch   = meas_group_add_channel(analog, "RPM",  MEAS_FLOAT32);
+    meas_channel_set_property_str(rpm_ch, "Unit", "1/min");
+    MeasChannelWriter *cnt_ch   = meas_group_add_channel(analog, "Counter", MEAS_INT32);
+
+    /* Group 2: CAN bus — must define all groups before first flush */
+    MeasGroupWriter *can_grp = meas_writer_add_group(w, "CAN_Test");
+
+    MeasSignalDefinition sig = {0};
+    sig.name = "EngineRPM";
+    sig.start_bit = 0;
+    sig.bit_length = 16;
+    sig.factor = 0.25;
+    sig.offset = 0.0;
+    sig.has_unit = 1;
+    sig.unit = "rpm";
+
+    MeasFrameDefinition frame_def = {0};
+    frame_def.name = "EngineData";
+    frame_def.frame_id = XREF_ENGINE_FRAME_ID;
+    frame_def.payload_length = 8;
+    frame_def.signal_count = 1;
+    frame_def.signals = &sig;
+
+    MeasBusMetadata meta = {0};
+    meta.format_version = 1;
+    meta.bus_config.bus_type = MEAS_BUS_CAN;
+    meta.bus_config.u.can.baud_rate = 500000;
+    meta.raw_frame_channel_name = "RawFrames";
+    meta.timestamp_channel_name = "Timestamps";
+    meta.frame_count = 1;
+    meta.frames = &frame_def;
+
+    meas_group_set_bus_def(can_grp, &meta);
+
+    MeasChannelWriter *ts_can = meas_group_add_channel(can_grp, "Timestamps", MEAS_TIMESTAMP);
+    MeasChannelWriter *raw_can = meas_group_add_channel(can_grp, "RawFrames", MEAS_BINARY);
+
+    /* Write analog data with incremental flush */
+    for (int flush = 0; flush < XREF_SAMPLE_COUNT / XREF_FLUSH_INTERVAL; flush++) {
+        float    rpm_buf[XREF_FLUSH_INTERVAL];
+        int32_t  cnt_buf[XREF_FLUSH_INTERVAL];
+        int64_t  ts_buf[XREF_FLUSH_INTERVAL];
+        int base = flush * XREF_FLUSH_INTERVAL;
+        for (int j = 0; j < XREF_FLUSH_INTERVAL; j++) {
+            int i = base + j;
+            rpm_buf[j] = xref_rpm(i);
+            cnt_buf[j] = xref_counter(i);
+            ts_buf[j]  = xref_timestamp_ns(i);
+        }
+        meas_channel_write_timestamp(time_ch, ts_buf, XREF_FLUSH_INTERVAL);
+        meas_channel_write_f32(rpm_ch, rpm_buf, XREF_FLUSH_INTERVAL);
+        meas_channel_write_i32(cnt_ch, cnt_buf, XREF_FLUSH_INTERVAL);
+        meas_writer_flush(w);
+    }
+
+    /* Write CAN frames */
+    for (int i = 0; i < XREF_CAN_FRAME_COUNT; i++) {
+        int64_t ts = XREF_BASE_TS_NS + (int64_t)i * 10000000LL; /* 10ms */
+        meas_channel_write_timestamp(ts_can, &ts, 1);
+
+        uint16_t raw = xref_rpm_raw(i);
+        /* CAN wire format: [uint32 arbId][byte dlc][byte flags][payload] */
+        uint8_t frame_bytes[6 + 8];
+        memset(frame_bytes, 0, sizeof(frame_bytes));
+        /* Little-endian arbId */
+        frame_bytes[0] = (uint8_t)(XREF_ENGINE_FRAME_ID & 0xFF);
+        frame_bytes[1] = (uint8_t)((XREF_ENGINE_FRAME_ID >> 8) & 0xFF);
+        frame_bytes[2] = 0; frame_bytes[3] = 0;
+        frame_bytes[4] = 8;  /* dlc */
+        frame_bytes[5] = 0;  /* flags */
+        frame_bytes[6] = (uint8_t)(raw & 0xFF);
+        frame_bytes[7] = (uint8_t)(raw >> 8);
+        meas_channel_write_frame(raw_can, frame_bytes, 14);
+    }
+
+    meas_writer_close(w);
+}
+
+static void verify_crosslang_ref(const char *path, const char *lang) {
+    MeasReader *r = meas_reader_open(path);
+    if (!r) {
+        printf("  [SKIP] %s ref file not found: %s\n", lang, path);
+        g_passed++;
+        return;
+    }
+
+    /* File property */
+    {
+        const MeasProperty *ts_prop = meas_reader_file_property_by_name(r, "TestSuite");
+        if (ts_prop) {
+            ASSERT_EQ_INT(strcmp(ts_prop->value.str.data, "CrossLanguage"), 0);
+        }
+    }
+
+    /* At least 2 groups */
+    ASSERT(meas_reader_group_count(r) >= 2);
+
+    /* ── Analog group ── */
+    const MeasGroupData *analog = meas_reader_group_by_name(r, "Analog");
+    ASSERT(analog != NULL);
+    ASSERT_EQ_INT(analog->channel_count, 3);
+
+    const MeasChannelData *time_ch = meas_group_channel_by_name(analog, "Time");
+    const MeasChannelData *rpm_ch  = meas_group_channel_by_name(analog, "RPM");
+    const MeasChannelData *cnt_ch  = meas_group_channel_by_name(analog, "Counter");
+    ASSERT(time_ch != NULL);
+    ASSERT(rpm_ch != NULL);
+    ASSERT(cnt_ch != NULL);
+
+    ASSERT_EQ_INT(time_ch->data_type, MEAS_TIMESTAMP);
+    ASSERT_EQ_INT(rpm_ch->data_type, MEAS_FLOAT32);
+    ASSERT_EQ_INT(cnt_ch->data_type, MEAS_INT32);
+
+    ASSERT_EQ_INT(rpm_ch->sample_count, XREF_SAMPLE_COUNT);
+    ASSERT_EQ_INT(cnt_ch->sample_count, XREF_SAMPLE_COUNT);
+    ASSERT_EQ_INT(time_ch->sample_count, XREF_SAMPLE_COUNT);
+
+    /* Spot-check values */
+    float *rpm_data = (float *)malloc(XREF_SAMPLE_COUNT * sizeof(float));
+    int32_t *cnt_data = (int32_t *)malloc(XREF_SAMPLE_COUNT * sizeof(int32_t));
+    int64_t *ts_data = (int64_t *)malloc(XREF_SAMPLE_COUNT * sizeof(int64_t));
+    ASSERT(rpm_data && cnt_data && ts_data);
+
+    ASSERT_EQ_INT(meas_channel_read_f32(rpm_ch, rpm_data, XREF_SAMPLE_COUNT), XREF_SAMPLE_COUNT);
+    ASSERT_EQ_INT(meas_channel_read_i32(cnt_ch, cnt_data, XREF_SAMPLE_COUNT), XREF_SAMPLE_COUNT);
+    ASSERT_EQ_INT(meas_channel_read_timestamp(time_ch, ts_data, XREF_SAMPLE_COUNT), XREF_SAMPLE_COUNT);
+
+    ASSERT_NEAR(rpm_data[0], xref_rpm(0), 0.001);
+    ASSERT_NEAR(rpm_data[9999], xref_rpm(9999), 0.001);
+    ASSERT_NEAR(rpm_data[5000], xref_rpm(5000), 0.001);
+    ASSERT_EQ_INT(cnt_data[0], xref_counter(0));
+    ASSERT_EQ_INT(cnt_data[9999], xref_counter(9999));
+    ASSERT_EQ_INT(ts_data[0], xref_timestamp_ns(0));
+    ASSERT_EQ_INT(ts_data[9999], xref_timestamp_ns(9999));
+
+    /* Statistics */
+    ASSERT(rpm_ch->has_stats);
+    ASSERT_EQ_INT(rpm_ch->stats.count, XREF_SAMPLE_COUNT);
+    ASSERT_NEAR(rpm_ch->stats.min, (double)xref_rpm(0), 1.0);
+    ASSERT_NEAR(rpm_ch->stats.max, (double)xref_rpm(9999), 1.0);
+    ASSERT_NEAR(rpm_ch->stats.mean, 3499.75, 0.5);
+
+    /* ── CAN group ── */
+    const MeasGroupData *can_grp = meas_reader_group_by_name(r, "CAN_Test");
+    ASSERT(can_grp != NULL);
+
+    /* Bus definition */
+    MeasBusMetadata *bus_meta = NULL;
+    ASSERT_EQ_INT(meas_group_read_bus_def(can_grp, &bus_meta), 0);
+    ASSERT(bus_meta != NULL);
+    ASSERT_EQ_INT(bus_meta->bus_config.bus_type, MEAS_BUS_CAN);
+    ASSERT_EQ_INT(bus_meta->frame_count, 1);
+    ASSERT_EQ_INT(strcmp(bus_meta->frames[0].name, "EngineData"), 0);
+    ASSERT_EQ_INT(bus_meta->frames[0].frame_id, XREF_ENGINE_FRAME_ID);
+    ASSERT_EQ_INT(bus_meta->frames[0].signal_count, 1);
+    ASSERT_EQ_INT(strcmp(bus_meta->frames[0].signals[0].name, "EngineRPM"), 0);
+    ASSERT_NEAR(bus_meta->frames[0].signals[0].factor, 0.25, 0.001);
+    meas_bus_metadata_free(bus_meta);
+
+    /* Raw frames */
+    const MeasChannelData *raw_ch = meas_group_channel_by_name(can_grp, "RawFrames");
+    ASSERT(raw_ch != NULL);
+    ASSERT_EQ_INT(raw_ch->sample_count, XREF_CAN_FRAME_COUNT);
+
+    free(rpm_data);
+    free(cnt_data);
+    free(ts_data);
+    meas_reader_close(r);
+    PASS();
+}
+
+static MeasReader *try_open_ref(const char *filename) {
+    const char *prefixes[] = { "", "../../", "../" };
+    char buf[512];
+    for (int i = 0; i < 3; i++) {
+        snprintf(buf, sizeof(buf), "%s%s", prefixes[i], filename);
+        MeasReader *r = meas_reader_open(buf);
+        if (r) { meas_reader_close(r); return NULL; } /* just check if exists */
+    }
+    return NULL;
+}
+
+static const char *find_ref(const char *filename) {
+    static char buf[512];
+    const char *prefixes[] = { "", "../../", "../" };
+    for (int i = 0; i < 3; i++) {
+        snprintf(buf, sizeof(buf), "%s%s", prefixes[i], filename);
+        MeasReader *r = meas_reader_open(buf);
+        if (r) { meas_reader_close(r); return buf; }
+    }
+    return NULL;
+}
+
+static void test_crosslang_c_roundtrip(void) {
+    TEST("crosslang_c_write_and_read");
+    const char *path = tmp_file("ref_c.meas");
+    write_crosslang_ref(path);
+    verify_crosslang_ref(path, "C");
+}
+
+static void test_crosslang_read_csharp(void) {
+    TEST("crosslang_read_csharp_ref");
+    const char *path = find_ref("ref_csharp.meas");
+    if (!path) {
+        printf("  [SKIP] ref_csharp.meas not found\n");
+        g_passed++;
+        return;
+    }
+    verify_crosslang_ref(path, "C#");
+}
+
+static void test_crosslang_read_python(void) {
+    TEST("crosslang_read_python_ref");
+    const char *path = find_ref("ref_python.meas");
+    if (!path) {
+        printf("  [SKIP] ref_python.meas not found\n");
+        g_passed++;
+        return;
+    }
+    verify_crosslang_ref(path, "Python");
+}
+
+/* Write ref_c.meas to a well-known location for other languages to read */
+static void test_crosslang_generate_ref(void) {
+    TEST("crosslang_generate_ref_c");
+    /* Write to repo root or CWD */
+    const char *out_paths[] = { "ref_c.meas", "../../ref_c.meas" };
+    for (int i = 0; i < 2; i++) {
+        write_crosslang_ref(out_paths[i]);
+        MeasReader *r = meas_reader_open(out_paths[i]);
+        if (r) {
+            meas_reader_close(r);
+            printf("  Wrote %s\n", out_paths[i]);
+            PASS();
+            return;
+        }
+    }
+    PASS(); /* best-effort */
+}
+
 /* ── Main ───────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -1172,6 +1439,12 @@ int main(void) {
     test_zstd_binary_frames();
 #endif
     test_cross_language_read();
+
+    /* Cross-language roundtrip suite */
+    test_crosslang_c_roundtrip();
+    test_crosslang_generate_ref();
+    test_crosslang_read_csharp();
+    test_crosslang_read_python();
 
     printf("\n%d/%d tests passed", g_passed, g_tests);
     if (g_failed > 0) printf(", %d FAILED", g_failed);

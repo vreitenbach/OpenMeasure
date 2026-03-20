@@ -21,6 +21,7 @@ from measflow._codec import (
     CHUNK_HEADER_FMT,
     FILE_HEADER_SIZE,
     SEGMENT_HEADER_SIZE,
+    FLAG_EXTENDED_METADATA,
 )
 
 
@@ -308,6 +309,7 @@ class MeasWriter:
         self._metadata_content_offset: int = 0  # file offset of metadata content
         self._created_ns = time.time_ns()
         self._file_id = uuid.uuid4().bytes
+        self.properties: dict[str, Any] = {}
         # Open file immediately and write placeholder header
         self._file = open(path, "wb")
         self._file.write(b"\x00" * FILE_HEADER_SIZE)
@@ -352,6 +354,7 @@ class MeasWriter:
                 created_at_nanos=self._created_ns,
                 segment_count=self._segment_count,
                 file_id=self._file_id,
+                flags=getattr(self, '_header_flags', 0),
             )
             self._file.seek(0)
             self._file.write(hdr.to_bytes())
@@ -366,6 +369,18 @@ class MeasWriter:
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
+    @property
+    def _has_file_properties(self) -> bool:
+        return bool(self.properties)
+
+    def _file_props_encoded(self) -> dict[str, MeasValue] | None:
+        if not self.properties:
+            return None
+        return {
+            k: (v if isinstance(v, MeasValue) else MeasValue.from_python(v))
+            for k, v in self.properties.items()
+        }
+
     def _ensure_metadata(self) -> None:
         if self._metadata_written:
             return
@@ -376,23 +391,34 @@ class MeasWriter:
             for ch in g._channels:
                 ch._global_index = global_idx
                 global_idx += 1
+        # Always write extended metadata format
+        self._header_flags = FLAG_EXTENDED_METADATA
         # Write actual file header (replace placeholder)
         hdr = FileHeader(
             created_at_nanos=self._created_ns,
             segment_count=0,
             file_id=self._file_id,
+            flags=self._header_flags,
         )
         self._file.seek(0)
         self._file.write(hdr.to_bytes())
         self._file.seek(0, 2)  # seek to end
         # Write metadata segment with placeholder stats (will be patched on close)
-        meta_content = encode_metadata([g._to_group_def(with_stats=False) for g in self._groups])
+        meta_content = encode_metadata(
+            [g._to_group_def(with_stats=False) for g in self._groups],
+            file_properties=self._file_props_encoded(),
+            extended=True,
+        )
         self._metadata_content_offset = self._file.tell() + SEGMENT_HEADER_SIZE
         self._write_segment(SegmentType.METADATA, meta_content, chunk_count=0)
 
     def _patch_metadata_stats(self) -> None:
         """Overwrite the metadata segment content with final statistics in-place."""
-        final_meta = encode_metadata([g._to_group_def(with_stats=True) for g in self._groups])
+        final_meta = encode_metadata(
+            [g._to_group_def(with_stats=True) for g in self._groups],
+            file_properties=self._file_props_encoded(),
+            extended=True,
+        )
         self._file.seek(self._metadata_content_offset)
         self._file.write(final_meta)
         self._file.seek(0, 2)  # seek back to end

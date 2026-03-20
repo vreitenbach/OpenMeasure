@@ -20,6 +20,7 @@ public sealed class MeasWriter : IDisposable
     private bool _metadataWritten;
     private bool _disposed;
     private long _segmentCount;
+    private long _metadataSegmentOffset; // for re-patching stats on close
 
     /// <summary>Compression algorithm applied to data segments.</summary>
     public MeasCompression Compression { get; set; }
@@ -93,6 +94,10 @@ public sealed class MeasWriter : IDisposable
         // Flush remaining data
         Flush();
 
+        // Re-patch metadata segment with final statistics
+        if (_metadataWritten)
+            RepatchMetadataStatistics();
+
         // Update header with final segment count
         _header.SegmentCount = _segmentCount;
         _stream.Seek(0, SeekOrigin.Begin);
@@ -114,11 +119,21 @@ public sealed class MeasWriter : IDisposable
         if (_metadataWritten) return;
         _metadataWritten = true;
 
+        // Always write extended metadata (version prefix + file properties)
+        _header.Flags |= FileHeader.FlagExtendedMetadata;
+
+        // Re-write header so concurrent readers see the correct flags
+        _stream.Seek(0, SeekOrigin.Begin);
+        Span<byte> headerBuf = stackalloc byte[FileHeader.Size];
+        _header.WriteTo(headerBuf);
+        _stream.Write(headerBuf);
+        // Position is now at end of header = start of first segment
+
         // Serialize bus definitions into group properties before writing metadata
         foreach (var busGroup in _busGroups)
         {
             var encoded = BusMetadataEncoder.Encode(busGroup.BusDefinition);
-            busGroup.Group.Properties["meas.bus_def"] = encoded;
+            busGroup.Group.Properties["MEAS.bus_def"] = encoded;
         }
 
         WriteMetadataSegment();
@@ -145,7 +160,8 @@ public sealed class MeasWriter : IDisposable
                 channelDefs));
         }
 
-        var metadataBytes = MetadataEncoder.Encode(groups);
+        var metadataBytes = MetadataEncoder.Encode(groups,
+            fileProperties: _fileProperties, extended: true);
 
         var segHeader = new SegmentHeader
         {
@@ -158,6 +174,7 @@ public sealed class MeasWriter : IDisposable
         };
 
         long segStartOffset = _stream.Position;
+        _metadataSegmentOffset = segStartOffset;
         Span<byte> segBuf = stackalloc byte[SegmentHeader.Size];
         segHeader.WriteTo(segBuf);
         _stream.Write(segBuf);
@@ -172,6 +189,57 @@ public sealed class MeasWriter : IDisposable
         _stream.Seek(nextOffset, SeekOrigin.Begin);
 
         _segmentCount++;
+    }
+
+    /// <summary>
+    /// Re-encode and overwrite the metadata segment with final statistics.
+    /// Called from Dispose() after all data has been flushed.
+    /// </summary>
+    private void RepatchMetadataStatistics()
+    {
+        // Re-encode metadata with final statistics
+        var groups = new List<MeasGroupDefinition>();
+        int globalIndex = 0;
+
+        foreach (var group in _groups)
+        {
+            var channelDefs = new List<MeasChannelDefinition>();
+            foreach (var ch in group.ChannelWriters)
+            {
+                ch.GlobalIndex = globalIndex++;
+                var props = new Dictionary<string, MeasValue>(ch.Properties);
+                ch.WriteStatistics(props);
+                channelDefs.Add(new MeasChannelDefinition(ch.Name, ch.DataType, props));
+            }
+            groups.Add(new MeasGroupDefinition(
+                group.Name,
+                new Dictionary<string, MeasValue>(group.Properties),
+                channelDefs));
+        }
+
+        var metadataBytes = MetadataEncoder.Encode(groups,
+            fileProperties: _fileProperties, extended: true);
+
+        // Seek to metadata segment and overwrite
+        _stream.Seek(_metadataSegmentOffset, SeekOrigin.Begin);
+
+        var segHeader = new SegmentHeader
+        {
+            Type = SegmentType.Metadata,
+            Flags = 0,
+            ContentLength = metadataBytes.Length,
+            NextSegmentOffset = _metadataSegmentOffset + SegmentHeader.Size + metadataBytes.Length,
+            ChunkCount = 0,
+            Crc32 = 0,
+        };
+
+        Span<byte> segBuf = stackalloc byte[SegmentHeader.Size];
+        segHeader.WriteTo(segBuf);
+        _stream.Write(segBuf);
+        _stream.Write(metadataBytes);
+
+        // Seek back to end of file
+        _stream.Seek(0, SeekOrigin.End);
     }
 
     private void WriteDataSegment(List<(int globalIndex, ChannelWriter channel)> chunks)

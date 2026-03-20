@@ -11,6 +11,7 @@ internal struct FileHeader
 {
     public const int Size = 64;
     public const uint MagicNumber = 0x5341454D; // "MEAS" in little-endian (0x4D 0x45 0x41 0x53)
+    public const ushort FlagExtendedMetadata = 0x0001;
 
     public uint Magic;           // 4  "MEAS"
     public ushort Version;       // 2  Format version (1)

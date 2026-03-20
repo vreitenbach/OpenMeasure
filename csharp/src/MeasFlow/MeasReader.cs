@@ -127,7 +127,10 @@ public sealed class MeasReader : IDisposable
 
     private void ProcessMetadata(byte[] content)
     {
-        var groupDefs = MetadataEncoder.Decode(content);
+        bool extended = (Header.Flags & FileHeader.FlagExtendedMetadata) != 0;
+        var groupDefs = MetadataEncoder.Decode(content,
+            extendedMetadata: extended,
+            filePropertiesOut: extended ? _fileProperties : null);
         int globalIndex = 0;
 
         foreach (var gd in groupDefs)
@@ -144,7 +147,7 @@ public sealed class MeasReader : IDisposable
             }
             var group = new MeasGroup(gd.Name, gd.Properties, channels);
 
-            if (gd.Properties.TryGetValue("meas.bus_def", out var busDefValue)
+            if (gd.Properties.TryGetValue("MEAS.bus_def", out var busDefValue)
                 && busDefValue.Type == MeasDataType.Binary)
             {
                 group.BusDefinition = BusMetadataEncoder.Decode(busDefValue.AsBinary());

@@ -1,6 +1,6 @@
 ﻿# MeasFlow (.meas) Binary Format Specification
 
-**Version 1.0** — March 2026
+**Version 0.4** — March 2026
 
 This document specifies the binary file format for MeasFlow (.meas) files independently of any implementation. Any conforming reader/writer in any language (C#, C, Python, Rust, MATLAB) MUST follow this specification.
 
@@ -82,7 +82,7 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 |--------|------|---------|--------------------|--------------------------------------------------|
 | 0      | 4    | uint32  | Magic              | `0x5341454D` = ASCII `"MEAS\0"` (LE)              |
 | 4      | 2    | uint16  | Version            | Format version. Currently `1`.                    |
-| 6      | 2    | uint16  | Flags              | Reserved bit flags. Must be `0` for version 1.   |
+| 6      | 2    | uint16  | Flags              | Bit flags (see §4a-flags below).                 |
 | 8      | 8    | int64   | FirstSegmentOffset | Absolute byte offset to the first segment. Usually `64`. |
 | 16     | 8    | int64   | IndexOffset        | Reserved. Must be `0` for version 1.             |
 | 24     | 8    | int64   | SegmentCount       | Total number of segments written (updated on close). |
@@ -93,6 +93,17 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 **Magic byte pattern** (hex): `4D 45 41 53`
 
 **Version negotiation**: Readers MUST reject files with `Version > 1` unless they understand the newer version. Readers MUST reject files where `Magic ≠ 0x5341454D`.
+
+### §4a-flags. File Header Flags
+
+| Bit | Name               | Description                                                       |
+|-----|--------------------|-------------------------------------------------------------------|
+| 0   | ExtendedMetadata   | Metadata segment begins with a 2-byte version prefix (see §6).   |
+| 1–15| —                  | Reserved. Must be `0`.                                            |
+
+When bit 0 is **clear**, the metadata segment uses the legacy format (content starts directly with `groupCount`). When bit 0 is **set**, the metadata content starts with a 2-byte version prefix `[uint8: metaMajor][uint8: metaMinor]` followed by the versioned format. This allows existing files (≤ 0.3.x) to remain readable while enabling future metadata evolution.
+
+The metadata version follows the project's semver convention: pre-1.0 versions (0.x) may introduce changes with each minor bump.
 
 **SegmentCount**: This field is written as `0` initially and patched to the final count when the writer closes. A streaming reader that encounters `SegmentCount = 0` SHOULD walk the segment chain using `NextSegmentOffset` until reaching end-of-file.
 
@@ -146,13 +157,41 @@ The lower 4 bits of `Flags` (bits 0–3) encode the compression algorithm applie
 
 ## 6. Metadata Segment
 
-The metadata segment content encodes all groups, channels, and properties:
+The metadata segment content encodes file-level properties, groups, channels, and their properties.
+
+### Legacy format (Flags bit 0 clear)
+
+Files written before extended metadata support use this format:
 
 ```
 MetadataContent :=
   [int32: groupCount]
   Group[groupCount]
+```
 
+### Extended format (Flags bit 0 set) — metadata version 1.0+
+
+When the file header Flags bit 0 (`ExtendedMetadata`) is set, the metadata content begins with a 2-byte version prefix:
+
+```
+MetadataContent :=
+  [uint8: metaMajor]            // Major version (breaking changes)
+  [uint8: metaMinor]            // Minor version (additive features)
+  [int32: filePropertyCount]    // File-level properties (version ≥ 0.1)
+  Property[filePropertyCount]
+  [int32: groupCount]
+  Group[groupCount]
+```
+
+**Version negotiation for metadata**:
+- `metaMajor > supported` → reader MUST reject with a clear error
+- `metaMinor > supported` (same major) → reader parses what it knows, ignores the rest (forward-compatible within a major version)
+
+The current metadata version is **0.1**.
+
+### Group and Channel encoding
+
+```
 Group :=
   [String: name]
   [int32: propertyCount]
@@ -166,6 +205,8 @@ Channel :=
   [int32: propertyCount]
   Property[propertyCount]
 ```
+
+**File-level properties**: Key-value pairs attached to the file itself (e.g., `TestSuite`, `Creator`, `Description`). Only present in extended metadata format (metaMajor ≥ 1).
 
 **Channel ordering**: Channels are assigned a zero-based **global index** in the order they appear: all channels of group 0, then all channels of group 1, etc. Data chunks reference channels by this global index.
 
@@ -238,7 +279,7 @@ For `Utf8String`, `frame data` is the UTF-8 encoded string without a null termin
 
 ## 9. Property System
 
-Properties are key-value pairs attached to groups and channels.
+Properties are key-value pairs attached to files, groups, and channels.
 
 ```
 Property :=
@@ -622,6 +663,7 @@ Statistics are stored as channel properties with `MEAS.stats.*` keys (see §9).
 
 A conforming writer MUST:
 - Write a valid 64-byte file header with `Magic = 0x5341454D` and `Version = 1`
+- Set `Flags` bit 0 (`ExtendedMetadata`) when writing extended metadata; write the 2-byte version prefix (`metaMajor.metaMinor`) at the start of the metadata content
 - Write at least one Metadata segment before any Data segments
 - Use little-endian encoding for all multi-byte values
 - Store valid `NextSegmentOffset` in every segment header

@@ -3,6 +3,12 @@ using MeasFlow.Bus;
 
 var outputPath = args.Length > 0 ? args[0] : "demo_measurement.meas";
 
+// Also generate cross-language reference file
+var refDir = Path.GetDirectoryName(outputPath) ?? ".";
+var refPath = Path.Combine(refDir, "ref_csharp.meas");
+CrossLanguageReferenceWriter.Write(refPath);
+Console.WriteLine($"Cross-language reference: {refPath}");
+
 using var writer = MeasFile.CreateWriter(outputPath);
 
 // Group 1: Analog sensors

@@ -477,16 +477,15 @@ public class StreamingTests : IDisposable
             Assert.Equal(23.0, statsAfterFlush2.Mean, 1); // (10+20+30+5+50)/5
         }
 
-        // Persisted stats: metadata is written at first flush, so stats
-        // reflect the state at that moment (count=3). This is by design —
-        // metadata is written once for forward-compatibility.
-        // The data itself is fully preserved across all segments.
+        // Persisted stats: metadata is re-patched on close with final statistics
+        // covering all flushed data.
         using var reader = MeasFile.OpenRead(path);
         var stats = reader["Stats"]["Data"].Statistics;
         Assert.NotNull(stats);
-        Assert.Equal(3, stats.Value.Count); // Stats from first flush (metadata write time)
-        Assert.Equal(10.0, stats.Value.Min, 1);
-        Assert.Equal(30.0, stats.Value.Max, 1);
+        Assert.Equal(5, stats.Value.Count);
+        Assert.Equal(5.0, stats.Value.Min, 1);
+        Assert.Equal(50.0, stats.Value.Max, 1);
+        Assert.Equal(23.0, stats.Value.Mean, 1); // (10+20+30+5+50)/5
 
         // But ALL data is readable across all segments
         var allData = reader["Stats"]["Data"].ReadAll<float>();

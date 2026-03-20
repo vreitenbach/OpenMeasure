@@ -25,23 +25,49 @@ jobs:
       - run: dotnet test --no-build -c Release --verbosity normal
         working-directory: csharp
 
-  generate-demo:
-    name: Generate demo file
+  generate-refs:
+    name: Generate reference files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # ── C# reference ──
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
       - run: dotnet run -c Release --project csharp/tools/MeasFlow.DemoGenerator -- demo_measurement.meas
+
+      # ── Python reference ──
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+        working-directory: python
+      - run: python python/tests/test_crosslang.py
+
+      # ── C reference ──
+      - name: Install vcpkg dependencies
+        run: vcpkg install lz4 zstd
+      - name: Build C
+        run: |
+          cmake -B build -S c -DMEAS_BUILD_TESTS=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build --config Release
+      - name: Generate ref_c.meas
+        run: ./build/test_measflow
+
       - uses: actions/upload-artifact@v4
         with:
-          name: demo-measurement
-          path: demo_measurement.meas
+          name: reference-files
+          path: |
+            demo_measurement.meas
+            ref_csharp.meas
+            ref_python.meas
+            ref_c.meas
 
   python:
     name: Python (${{ matrix.python }}, ${{ matrix.os }})
-    needs: generate-demo
+    needs: generate-refs
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -51,7 +77,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: demo-measurement
+          name: reference-files
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -62,7 +88,7 @@ jobs:
 
   c:
     name: C (${{ matrix.os }})
-    needs: generate-demo
+    needs: generate-refs
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -71,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: demo-measurement
+          name: reference-files
       - name: Install vcpkg dependencies
         shell: bash
         run: vcpkg install lz4 zstd
@@ -93,3 +119,18 @@ jobs:
       - name: Test (Windows)
         if: runner.os == 'Windows'
         run: ./build/Release/test_measflow.exe
+
+  csharp-crosslang:
+    name: C# cross-language verification
+    needs: generate-refs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: reference-files
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test -c Release --verbosity normal
+        working-directory: csharp

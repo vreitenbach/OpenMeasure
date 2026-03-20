@@ -479,6 +479,10 @@ typedef struct MeasWriter        MeasWriter;
 typedef struct MeasGroupWriter   MeasGroupWriter;
 typedef struct MeasChannelWriter MeasChannelWriter;
 
+/* ── File Header Flags (§4a-flags) ─────────────────────────────────────────── */
+
+#define MEAS_FLAG_HAS_FILE_PROPERTIES  0x0001
+
 /* ── Writer API ────────────────────────────────────────────────────────────── */
 
 /**
@@ -507,6 +511,41 @@ MEAS_API int meas_writer_flush(MeasWriter *writer);
  * The writer pointer is invalid after this call.
  */
 MEAS_API void meas_writer_close(MeasWriter *writer);
+
+/**
+ * Set a file-level string property. Must be called before first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_writer_set_property_str(MeasWriter *writer, const char *key, const char *value);
+
+/**
+ * Set a file-level int32 property. Must be called before first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_writer_set_property_i32(MeasWriter *writer, const char *key, int32_t value);
+
+/**
+ * Set a file-level float64 property. Must be called before first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_writer_set_property_f64(MeasWriter *writer, const char *key, double value);
+
+/**
+ * Get file-level property count from the reader.
+ */
+MEAS_API int meas_reader_file_property_count(const MeasReader *reader);
+
+/**
+ * Get a file-level property by index (0-based).
+ * @return  Pointer to the property (owned by the reader), or NULL.
+ */
+MEAS_API const MeasProperty *meas_reader_file_property(const MeasReader *reader, int idx);
+
+/**
+ * Find a file-level property by key.
+ * @return  Pointer to the property (owned by the reader), or NULL.
+ */
+MEAS_API const MeasProperty *meas_reader_file_property_by_name(const MeasReader *reader, const char *key);
 
 /**
  * Add a named group to the writer.
@@ -613,6 +652,48 @@ MEAS_API int meas_group_set_bus_def(MeasGroupWriter *group, const MeasBusMetadat
  */
 MEAS_API int meas_group_set_property_bin(MeasGroupWriter *group, const char *key,
                                           const uint8_t *data, int32_t len);
+
+/**
+ * Set a string property on a group writer.
+ * Must be called before the first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_group_set_property_str(MeasGroupWriter *group, const char *key, const char *value);
+
+/**
+ * Set an int32 property on a group writer.
+ * Must be called before the first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_group_set_property_i32(MeasGroupWriter *group, const char *key, int32_t value);
+
+/**
+ * Set a float64 property on a group writer.
+ * Must be called before the first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_group_set_property_f64(MeasGroupWriter *group, const char *key, double value);
+
+/**
+ * Set a string property on a channel writer.
+ * Must be called before the first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_channel_set_property_str(MeasChannelWriter *ch, const char *key, const char *value);
+
+/**
+ * Set an int32 property on a channel writer.
+ * Must be called before the first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_channel_set_property_i32(MeasChannelWriter *ch, const char *key, int32_t value);
+
+/**
+ * Set a float64 property on a channel writer.
+ * Must be called before the first flush.
+ * @return  0 on success, -1 on error.
+ */
+MEAS_API int meas_channel_set_property_f64(MeasChannelWriter *ch, const char *key, double value);
 
 /**
  * Find the `MEAS.bus_def` binary property in a group and decode it.

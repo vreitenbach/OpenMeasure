@@ -327,11 +327,12 @@ static void extract_stats(MeasChannelData *ch) {
 /* Write the 64-byte file header into a buffer.
    file_id must be 16 bytes; pass NULL to get a zeroed UUID. */
 static void encode_file_header(uint8_t buf[64], int64_t created_at_ns,
-                                int64_t segment_count, const uint8_t file_id[16]) {
+                                int64_t segment_count, const uint8_t file_id[16],
+                                uint16_t flags) {
     memset(buf, 0, 64);
     write_le32(buf +  0, MEAS_MAGIC);
     write_le16(buf +  4, MEAS_VERSION);
-    write_le16(buf +  6, 0);                        /* flags */
+    write_le16(buf +  6, flags);                     /* flags */
     write_le64(buf +  8, (uint64_t)MEAS_FILE_HEADER_SIZE); /* first segment offset */
     write_le64(buf + 16, 0);                        /* index offset (reserved) */
     write_le64(buf + 24, (uint64_t)segment_count);
@@ -402,6 +403,9 @@ struct MeasChannelWriter {
     ByteBuf      buf;       /* accumulated data bytes (not yet flushed) */
     int64_t      sample_count_pending; /* samples in buf */
     StatsAcc     stats;
+    /* User-defined properties (excluding auto-generated stats) */
+    int          property_count;
+    ByteBuf      props_blob;
 };
 
 struct MeasGroupWriter {
@@ -425,6 +429,9 @@ struct MeasWriter {
     int64_t            created_at_ns;
     uint8_t            file_id[16];
     MeasCompression    compression;
+    int                file_prop_count;
+    int                file_prop_cap;
+    MeasProperty      *file_props;
 };
 
 /* Generate a simple pseudo-random UUID (RFC 4122 v4) without platform deps */
@@ -451,8 +458,73 @@ static int64_t now_nanos(void) {
     return (int64_t)ts.tv_sec * INT64_C(1000000000) + ts.tv_nsec;
 }
 
-/* Build the metadata segment content for all groups */
-static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats) {
+/* Encode a single property value (key + type + value) into a ByteBuf.
+   Used for file-level property encoding. */
+static int bbuf_append_property(ByteBuf *b, const MeasProperty *p) {
+    if (!bbuf_append_string(b, p->key)) return 0;
+    if (!bbuf_append_u8(b, (uint8_t)p->type)) return 0;
+    switch (p->type) {
+        case MEAS_INT8:
+            return bbuf_append_u8(b, (uint8_t)p->value.i8);
+        case MEAS_INT16: {
+            uint8_t tmp[2]; write_le16(tmp, (uint16_t)p->value.i16);
+            return bbuf_append(b, tmp, 2);
+        }
+        case MEAS_INT32: {
+            return bbuf_append_le32(b, (uint32_t)p->value.i32);
+        }
+        case MEAS_INT64:
+        case MEAS_TIMESTAMP:
+        case MEAS_TIMESPAN:
+            return bbuf_append_le64(b, (uint64_t)p->value.i64);
+        case MEAS_UINT8:
+            return bbuf_append_u8(b, p->value.u8);
+        case MEAS_UINT16: {
+            uint8_t tmp[2]; write_le16(tmp, p->value.u16);
+            return bbuf_append(b, tmp, 2);
+        }
+        case MEAS_UINT32:
+            return bbuf_append_le32(b, p->value.u32);
+        case MEAS_UINT64:
+            return bbuf_append_le64(b, p->value.u64);
+        case MEAS_FLOAT32: {
+            uint8_t tmp[4]; f32_to_le_bytes(tmp, p->value.f32);
+            return bbuf_append(b, tmp, 4);
+        }
+        case MEAS_FLOAT64: {
+            uint8_t tmp[8]; f64_to_le_bytes(tmp, p->value.f64);
+            return bbuf_append(b, tmp, 8);
+        }
+        case MEAS_BOOL:
+            return bbuf_append_u8(b, p->value.bool_val);
+        case MEAS_STRING:
+            return bbuf_append_string(b, p->value.str.data ? p->value.str.data : "");
+        case MEAS_BINARY:
+            if (!bbuf_append_le32(b, (uint32_t)p->value.bin.length)) return 0;
+            if (p->value.bin.length > 0)
+                return bbuf_append(b, p->value.bin.data, (size_t)p->value.bin.length);
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* Build the metadata segment content for all groups.
+   When with_extended is set, prepend [uint8 metaMajor][uint8 metaMinor][file properties]. */
+static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats,
+                           int with_extended, const MeasProperty *file_props,
+                           int file_prop_count) {
+    if (with_extended) {
+        /* Extended metadata version header */
+        if (!bbuf_append_u8(b, 0)) return 0;  /* metaMajor */
+        if (!bbuf_append_u8(b, 1)) return 0;  /* metaMinor */
+        /* File properties: [int32: count][properties...] */
+        if (!bbuf_append_le32(b, (uint32_t)file_prop_count)) return 0;
+        for (int i = 0; i < file_prop_count; i++) {
+            if (!bbuf_append_property(b, &file_props[i])) return 0;
+        }
+    }
+
     if (!bbuf_append_le32(b, (uint32_t)w->group_count)) return 0;
 
     for (int gi = 0; gi < w->group_count; gi++) {
@@ -470,10 +542,13 @@ static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats) {
             if (!bbuf_append_string(b, ch->name)) return 0;
             if (!bbuf_append_u8(b, (uint8_t)ch->dtype)) return 0;
 
-            /* channel properties = statistics if applicable */
+            /* channel properties = user props + statistics if applicable */
             if (with_stats && ch->stats.active && ch->stats.count > 0) {
-                /* [int32: propCount = 8] [key,value...] */
-                if (!bbuf_append_le32(b, 8)) return 0;
+                /* [int32: propCount = user + 8 stats] */
+                if (!bbuf_append_le32(b, (uint32_t)(ch->property_count + 8))) return 0;
+                if (ch->props_blob.size > 0) {
+                    if (!bbuf_append(b, ch->props_blob.data, ch->props_blob.size)) return 0;
+                }
                 double variance = ch->stats.count > 0
                     ? ch->stats.m2 / (double)ch->stats.count : 0.0;
                 /* Pre-computed lengths avoid repeated strlen on constants */
@@ -503,8 +578,11 @@ static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats) {
                     }
                 }
             } else if (with_stats && ch->stats.active) {
-                /* Write placeholder zeroed stats (same byte count) */
-                if (!bbuf_append_le32(b, 8)) return 0;
+                /* Write user props + placeholder zeroed stats (same byte count) */
+                if (!bbuf_append_le32(b, (uint32_t)(ch->property_count + 8))) return 0;
+                if (ch->props_blob.size > 0) {
+                    if (!bbuf_append(b, ch->props_blob.data, ch->props_blob.size)) return 0;
+                }
                 static const struct { const char *k; size_t klen; MeasDataType t; } keys[] = {
                     {"meas.stats.count",    16, MEAS_INT64},
                     {"meas.stats.min",      14, MEAS_FLOAT64},
@@ -526,8 +604,11 @@ static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats) {
                     }
                 }
             } else {
-                /* no properties */
-                if (!bbuf_append_le32(b, 0)) return 0;
+                /* user properties only (no stats) */
+                if (!bbuf_append_le32(b, (uint32_t)ch->property_count)) return 0;
+                if (ch->props_blob.size > 0) {
+                    if (!bbuf_append(b, ch->props_blob.data, ch->props_blob.size)) return 0;
+                }
             }
         }
     }
@@ -568,16 +649,18 @@ static int ensure_metadata(MeasWriter *w) {
         for (int ci = 0; ci < w->groups[gi]->channel_count; ci++)
             w->groups[gi]->channels[ci]->global_index = idx++;
 
-    /* Write actual file header (replaces 64-byte placeholder) */
+    /* Write actual file header with MEAS_FLAG_HAS_FILE_PROPERTIES set */
     uint8_t fhdr[64];
-    encode_file_header(fhdr, w->created_at_ns, 0, w->file_id);
+    encode_file_header(fhdr, w->created_at_ns, 0, w->file_id,
+                       MEAS_FLAG_HAS_FILE_PROPERTIES);
     if (fseek(w->file, 0, SEEK_SET) != 0) return 0;
     if (fwrite(fhdr, 1, 64, w->file) != 64) return 0;
     if (fseek(w->file, 0, SEEK_END) != 0) return 0;
 
     /* Build and write metadata segment with placeholder stats */
     ByteBuf meta; bbuf_init(&meta);
-    if (!build_metadata(w, &meta, 1 /* with placeholder stats */)) {
+    if (!build_metadata(w, &meta, 1 /* with placeholder stats */,
+                        1, w->file_props, w->file_prop_count)) {
         bbuf_free(&meta); return 0;
     }
     w->metadata_content_offset = ftell(w->file) + MEAS_SEG_HEADER_SIZE;
@@ -647,6 +730,7 @@ MeasChannelWriter *meas_group_add_channel(MeasGroupWriter *group, const char *na
     ch->dtype = dtype;
     ch->stats.active = dtype_supports_stats(dtype);
     bbuf_init(&ch->buf);
+    bbuf_init(&ch->props_blob);
 
     group->channels[group->channel_count++] = ch;
     return ch;
@@ -670,6 +754,61 @@ int meas_writer_set_compression(MeasWriter *writer, MeasCompression compression)
         default: return -1; /* unsupported */
     }
     writer->compression = compression;
+    return 0;
+}
+
+/* ── File-level property writer helpers ────────────────────────────────── */
+
+/* Grow the file_props array if needed and return a pointer to the next slot */
+static MeasProperty *writer_alloc_file_prop(MeasWriter *w) {
+    if (w->file_prop_count == w->file_prop_cap) {
+        int cap = w->file_prop_cap ? w->file_prop_cap * 2 : 4;
+        MeasProperty *p = (MeasProperty *)realloc(
+            w->file_props, (size_t)cap * sizeof(MeasProperty));
+        if (!p) return NULL;
+        w->file_props = p;
+        w->file_prop_cap = cap;
+    }
+    MeasProperty *prop = &w->file_props[w->file_prop_count];
+    memset(prop, 0, sizeof(*prop));
+    return prop;
+}
+
+int meas_writer_set_property_str(MeasWriter *writer, const char *key, const char *value) {
+    if (!writer || !key || !value || writer->metadata_written) return -1;
+    MeasProperty *p = writer_alloc_file_prop(writer);
+    if (!p) return -1;
+    p->key = strdup(key);
+    if (!p->key) return -1;
+    p->type = MEAS_STRING;
+    p->value.str.data = strdup(value);
+    if (!p->value.str.data) { free(p->key); p->key = NULL; return -1; }
+    p->value.str.length = (int32_t)strlen(value);
+    writer->file_prop_count++;
+    return 0;
+}
+
+int meas_writer_set_property_i32(MeasWriter *writer, const char *key, int32_t value) {
+    if (!writer || !key || writer->metadata_written) return -1;
+    MeasProperty *p = writer_alloc_file_prop(writer);
+    if (!p) return -1;
+    p->key = strdup(key);
+    if (!p->key) return -1;
+    p->type = MEAS_INT32;
+    p->value.i32 = value;
+    writer->file_prop_count++;
+    return 0;
+}
+
+int meas_writer_set_property_f64(MeasWriter *writer, const char *key, double value) {
+    if (!writer || !key || writer->metadata_written) return -1;
+    MeasProperty *p = writer_alloc_file_prop(writer);
+    if (!p) return -1;
+    p->key = strdup(key);
+    if (!p->key) return -1;
+    p->type = MEAS_FLOAT64;
+    p->value.f64 = value;
+    writer->file_prop_count++;
     return 0;
 }
 
@@ -859,7 +998,8 @@ void meas_writer_close(MeasWriter *writer) {
                     any_stats = 1;
         if (any_stats) {
             ByteBuf final_meta; bbuf_init(&final_meta);
-            if (build_metadata(writer, &final_meta, 1 /* with real stats */)) {
+            if (build_metadata(writer, &final_meta, 1 /* with real stats */,
+                               1, writer->file_props, writer->file_prop_count)) {
                 fseek(writer->file, (long)writer->metadata_content_offset, SEEK_SET);
                 fwrite(final_meta.data, 1, final_meta.size, writer->file);
                 fseek(writer->file, 0, SEEK_END);
@@ -870,7 +1010,8 @@ void meas_writer_close(MeasWriter *writer) {
 
     /* Patch file header with final segment count */
     uint8_t fhdr[64];
-    encode_file_header(fhdr, writer->created_at_ns, writer->segment_count, writer->file_id);
+    encode_file_header(fhdr, writer->created_at_ns, writer->segment_count, writer->file_id,
+                       MEAS_FLAG_HAS_FILE_PROPERTIES);
     fseek(writer->file, 0, SEEK_SET);
     fwrite(fhdr, 1, 64, writer->file);
 
@@ -883,6 +1024,7 @@ void meas_writer_close(MeasWriter *writer) {
             MeasChannelWriter *ch = g->channels[ci];
             free(ch->name);
             bbuf_free(&ch->buf);
+            bbuf_free(&ch->props_blob);
             free(ch);
         }
         free(g->channels);
@@ -891,6 +1033,7 @@ void meas_writer_close(MeasWriter *writer) {
         free(g);
     }
     free(writer->groups);
+    free_properties(writer->file_props, writer->file_prop_count);
     free(writer);
 }
 
@@ -1917,6 +2060,62 @@ int meas_group_set_property_bin(MeasGroupWriter *g, const char *key,
     return 0;
 }
 
+int meas_group_set_property_str(MeasGroupWriter *g, const char *key, const char *value) {
+    if (!g || !key || !value) return -1;
+    if (!bbuf_append_string(&g->props_blob, key))                   return -1;
+    if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_STRING))  return -1;
+    if (!bbuf_append_string(&g->props_blob, value))                 return -1;
+    g->property_count++;
+    return 0;
+}
+
+int meas_group_set_property_i32(MeasGroupWriter *g, const char *key, int32_t value) {
+    if (!g || !key) return -1;
+    if (!bbuf_append_string(&g->props_blob, key))                  return -1;
+    if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_INT32))  return -1;
+    if (!bbuf_append_le32  (&g->props_blob, (uint32_t)value))      return -1;
+    g->property_count++;
+    return 0;
+}
+
+int meas_group_set_property_f64(MeasGroupWriter *g, const char *key, double value) {
+    if (!g || !key) return -1;
+    if (!bbuf_append_string(&g->props_blob, key))                   return -1;
+    if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_FLOAT64)) return -1;
+    uint8_t vb[8]; f64_to_le_bytes(vb, value);
+    if (!bbuf_append(&g->props_blob, vb, 8))                        return -1;
+    g->property_count++;
+    return 0;
+}
+
+int meas_channel_set_property_str(MeasChannelWriter *ch, const char *key, const char *value) {
+    if (!ch || !key || !value) return -1;
+    if (!bbuf_append_string(&ch->props_blob, key))                   return -1;
+    if (!bbuf_append_u8    (&ch->props_blob, (uint8_t)MEAS_STRING))  return -1;
+    if (!bbuf_append_string(&ch->props_blob, value))                 return -1;
+    ch->property_count++;
+    return 0;
+}
+
+int meas_channel_set_property_i32(MeasChannelWriter *ch, const char *key, int32_t value) {
+    if (!ch || !key) return -1;
+    if (!bbuf_append_string(&ch->props_blob, key))                  return -1;
+    if (!bbuf_append_u8    (&ch->props_blob, (uint8_t)MEAS_INT32))  return -1;
+    if (!bbuf_append_le32  (&ch->props_blob, (uint32_t)value))      return -1;
+    ch->property_count++;
+    return 0;
+}
+
+int meas_channel_set_property_f64(MeasChannelWriter *ch, const char *key, double value) {
+    if (!ch || !key) return -1;
+    if (!bbuf_append_string(&ch->props_blob, key))                   return -1;
+    if (!bbuf_append_u8    (&ch->props_blob, (uint8_t)MEAS_FLOAT64)) return -1;
+    uint8_t vb[8]; f64_to_le_bytes(vb, value);
+    if (!bbuf_append(&ch->props_blob, vb, 8))                        return -1;
+    ch->property_count++;
+    return 0;
+}
+
 int meas_group_set_bus_def(MeasGroupWriter *group, const MeasBusMetadata *meta) {
     if (!group || !meta) return -1;
     uint8_t *blob = NULL; int32_t blen = 0;
@@ -2096,6 +2295,8 @@ int meas_channel_next_ethernet_frame(const MeasChannelData *ch, int64_t *state,
 struct MeasReader {
     MeasGroupData *groups;
     int            group_count;
+    int            file_prop_count;
+    MeasProperty  *file_props;
     /* Memory-mapped file handles */
 #ifdef _WIN32
     HANDLE  mmap_file;
@@ -2140,9 +2341,26 @@ static int channel_append_data(MeasChannelData *ch, const uint8_t *src, size_t l
     return 1;
 }
 
-/* Decode metadata segment content (§6) and populate reader groups */
-static int decode_metadata_segment(MeasReader *r, const uint8_t *buf, size_t bufsz) {
+/* Decode metadata segment content (§6) and populate reader groups.
+   When has_file_properties is set, the content starts with
+   [uint8 metaMajor][uint8 metaMinor][file properties] before groups. */
+static int decode_metadata_segment(MeasReader *r, const uint8_t *buf, size_t bufsz,
+                                    int has_file_properties) {
     size_t off = 0;
+
+    if (has_file_properties) {
+        /* Read extended metadata version */
+        if (off + 2 > bufsz) return 0;
+        uint8_t metaMajor = buf[off++];
+        uint8_t metaMinor = buf[off++];
+        (void)metaMinor; /* currently unused beyond validation */
+        /* We support metaMajor == 0 only */
+        if (metaMajor != 0) return 0;
+        /* Decode file-level properties */
+        if (!decode_properties(buf, bufsz, &off, &r->file_props, &r->file_prop_count))
+            return 0;
+    }
+
     if (off + 4 > bufsz) return 0;
     int32_t group_count = (int32_t)read_le32(buf + off); off += 4;
     if (group_count < 0 || group_count > 100000) return 0;
@@ -2245,6 +2463,7 @@ MeasReader *meas_reader_open(const char *path) {
     if (magic != MEAS_MAGIC) { free(filebuf); return NULL; }
     uint16_t version = read_le16(filebuf + 4);
     if (version != MEAS_VERSION) { free(filebuf); return NULL; }
+    uint16_t file_flags = read_le16(filebuf + 6);
 
     int64_t first_seg_off  = (int64_t)read_le64(filebuf + 8);
     int64_t segment_count_hdr = (int64_t)read_le64(filebuf + 24);
@@ -2308,7 +2527,8 @@ MeasReader *meas_reader_open(const char *path) {
 
         if (seg_type == MEAS_SEG_TYPE_METADATA) {
             /* Decode metadata first so channels exist for data segments */
-            decode_metadata_segment(r, content, content_sz);
+            decode_metadata_segment(r, content, content_sz,
+                                       (file_flags & MEAS_FLAG_HAS_FILE_PROPERTIES) ? 1 : 0);
             /* Build flat channel index */
             total_channels = 0;
             for (int gi = 0; gi < r->group_count; gi++)
@@ -2352,6 +2572,7 @@ void meas_reader_close(MeasReader *reader) {
         free_properties(g->properties, g->property_count);
     }
     free(reader->groups);
+    free_properties(reader->file_props, reader->file_prop_count);
     /* Release memory mapping */
 #ifdef _WIN32
     if (reader->mmap_base) UnmapViewOfFile(reader->mmap_base);
@@ -2382,6 +2603,25 @@ const MeasChannelData *meas_group_channel_by_name(const MeasGroupData *g, const 
     for (int i = 0; i < g->channel_count; i++)
         if (strcmp(g->channels[i].name, name) == 0)
             return &g->channels[i];
+    return NULL;
+}
+
+/* ── File-level property reader API ────────────────────────────────────── */
+
+int meas_reader_file_property_count(const MeasReader *reader) {
+    return reader ? reader->file_prop_count : 0;
+}
+
+const MeasProperty *meas_reader_file_property(const MeasReader *reader, int idx) {
+    if (!reader || idx < 0 || idx >= reader->file_prop_count) return NULL;
+    return &reader->file_props[idx];
+}
+
+const MeasProperty *meas_reader_file_property_by_name(const MeasReader *reader, const char *key) {
+    if (!reader || !key) return NULL;
+    for (int i = 0; i < reader->file_prop_count; i++)
+        if (strcmp(reader->file_props[i].key, key) == 0)
+            return &reader->file_props[i];
     return NULL;
 }
 

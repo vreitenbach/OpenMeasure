@@ -19,6 +19,7 @@ from measflow._codec import (
     decode_metadata,
     decode_chunk_header,
     SEGMENT_HEADER_SIZE,
+    FLAG_EXTENDED_METADATA,
 )
 
 
@@ -177,6 +178,7 @@ class MeasReader:
     def __init__(self, path: str) -> None:
         self._path = path
         self.groups: list[MeasGroup] = []
+        self.properties: dict[str, MeasValue] = {}
         self.created_at: MeasTimestamp | None = None
         self._by_name: dict[str, MeasGroup] = {}
         self._file = None
@@ -236,7 +238,12 @@ class MeasReader:
                 content = dctx.decompress(content)
 
             if seg.type == SegmentType.METADATA:
-                group_defs = decode_metadata(content)
+                extended = bool(file_hdr.flags & FLAG_EXTENDED_METADATA)
+                group_defs = decode_metadata(
+                    content,
+                    extended_metadata=extended,
+                    file_properties_out=self.properties if extended else None,
+                )
             elif seg.type == SegmentType.DATA:
                 pos = 0
                 (chunk_count,) = struct.unpack_from("<i", content, pos)

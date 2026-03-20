@@ -18,10 +18,30 @@ namespace MeasFlow.Format;
 /// </summary>
 internal static class MetadataEncoder
 {
-    public static byte[] Encode(IReadOnlyList<MeasGroupDefinition> groups)
+    // Current metadata format version (§6)
+    public const byte MetaMajor = 0;
+    public const byte MetaMinor = 1;
+
+    /// <summary>
+    /// Encode metadata. When <paramref name="extended"/> is true,
+    /// the output starts with [metaMajor][metaMinor][fileProps...][groupCount]...
+    /// </summary>
+    public static byte[] Encode(IReadOnlyList<MeasGroupDefinition> groups,
+        Dictionary<string, MeasValue>? fileProperties = null,
+        bool extended = false)
     {
+        // Auto-enable extended format when file properties are present
+        extended = extended || fileProperties is { Count: > 0 };
+
         using var ms = new MemoryStream(4096);
         using var bw = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
+
+        if (extended)
+        {
+            bw.Write(MetaMajor);  // uint8
+            bw.Write(MetaMinor);  // uint8
+            WriteProperties(bw, fileProperties ?? new Dictionary<string, MeasValue>());
+        }
 
         bw.Write(groups.Count); // int32 group count
 
@@ -43,9 +63,30 @@ internal static class MetadataEncoder
         return ms.ToArray();
     }
 
-    public static List<MeasGroupDefinition> Decode(ReadOnlySpan<byte> data)
+    public static List<MeasGroupDefinition> Decode(ReadOnlySpan<byte> data,
+        bool extendedMetadata = false,
+        Dictionary<string, MeasValue>? filePropertiesOut = null)
     {
         int offset = 0;
+
+        if (extendedMetadata)
+        {
+            byte major = data[offset++];
+            byte minor = data[offset++];
+
+            if (major > MetaMajor)
+                throw new InvalidDataException(
+                    $"Unsupported metadata version {major}.{minor} (max supported: {MetaMajor}.{MetaMinor})");
+
+            // metaMajor >= 1: file-level properties
+            var fileProps = ReadProperties(data, ref offset);
+            if (filePropertiesOut != null)
+            {
+                foreach (var kv in fileProps)
+                    filePropertiesOut[kv.Key] = kv.Value;
+            }
+        }
+
         int groupCount = ReadInt32(data, ref offset);
         var groups = new List<MeasGroupDefinition>(groupCount);
 

@@ -9,3 +9,6 @@ TestResults/
 *.local.json
 *.log
 results/
+build/
+*.pyc
+ref_*.meas
