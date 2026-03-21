@@ -481,7 +481,8 @@ typedef struct MeasChannelWriter MeasChannelWriter;
 
 /* ── File Header Flags (§4a-flags) ─────────────────────────────────────────── */
 
-#define MEAS_FLAG_HAS_FILE_PROPERTIES  0x0001
+#define MEAS_FLAG_EXTENDED_METADATA    0x0001
+#define MEAS_FLAG_HAS_FILE_PROPERTIES  MEAS_FLAG_EXTENDED_METADATA  /* legacy alias */
 
 /* ── Writer API ────────────────────────────────────────────────────────────── */
 

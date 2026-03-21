@@ -169,7 +169,7 @@ MetadataContent :=
   Group[groupCount]
 ```
 
-### Extended format (Flags bit 0 set) — metadata version 1.0+
+### Extended format (Flags bit 0 set) — metadata version 0.1+
 
 When the file header Flags bit 0 (`ExtendedMetadata`) is set, the metadata content begins with a 2-byte version prefix:
 
@@ -206,7 +206,7 @@ Channel :=
   Property[propertyCount]
 ```
 
-**File-level properties**: Key-value pairs attached to the file itself (e.g., `TestSuite`, `Creator`, `Description`). Only present in extended metadata format (metaMajor ≥ 1).
+**File-level properties**: Key-value pairs attached to the file itself (e.g., `TestSuite`, `Creator`, `Description`). Present when the file header Flags bit 0 (`ExtendedMetadata`) is set; applies starting from metadata version 0.1.
 
 **Channel ordering**: Channels are assigned a zero-based **global index** in the order they appear: all channels of group 0, then all channels of group 1, etc. Data chunks reference channels by this global index.
 

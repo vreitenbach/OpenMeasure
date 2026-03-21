@@ -21,6 +21,8 @@ public sealed class MeasWriter : IDisposable
     private bool _disposed;
     private long _segmentCount;
     private long _metadataSegmentOffset; // for re-patching stats on close
+    private int _originalMetadataLength; // content length when first written, for repatch safety
+    private Dictionary<string, MeasValue>? _frozenFileProperties; // snapshot taken at metadata-write time
 
     /// <summary>Compression algorithm applied to data segments.</summary>
     public MeasCompression Compression { get; set; }
@@ -119,6 +121,9 @@ public sealed class MeasWriter : IDisposable
         if (_metadataWritten) return;
         _metadataWritten = true;
 
+        // Snapshot file properties so later mutations cannot cause size mismatches during repatch
+        _frozenFileProperties = new Dictionary<string, MeasValue>(_fileProperties);
+
         // Always write extended metadata (version prefix + file properties)
         _header.Flags |= FileHeader.FlagExtendedMetadata;
 
@@ -161,7 +166,9 @@ public sealed class MeasWriter : IDisposable
         }
 
         var metadataBytes = MetadataEncoder.Encode(groups,
-            fileProperties: _fileProperties, extended: true);
+            fileProperties: _frozenFileProperties!, extended: true);
+
+        _originalMetadataLength = metadataBytes.Length;
 
         var segHeader = new SegmentHeader
         {
@@ -218,7 +225,13 @@ public sealed class MeasWriter : IDisposable
         }
 
         var metadataBytes = MetadataEncoder.Encode(groups,
-            fileProperties: _fileProperties, extended: true);
+            fileProperties: _frozenFileProperties!, extended: true);
+
+        if (metadataBytes.Length != _originalMetadataLength)
+            throw new InvalidOperationException(
+                $"Re-encoded metadata size ({metadataBytes.Length} bytes) differs from the original " +
+                $"({_originalMetadataLength} bytes). This would corrupt the file. " +
+                "Ensure file properties are not mutated after the first write.");
 
         // Seek to metadata segment and overwrite
         _stream.Seek(_metadataSegmentOffset, SeekOrigin.Begin);

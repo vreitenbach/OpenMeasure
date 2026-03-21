@@ -1332,16 +1332,6 @@ static void verify_crosslang_ref(const char *path, const char *lang) {
     PASS();
 }
 
-static MeasReader *try_open_ref(const char *filename) {
-    const char *prefixes[] = { "", "../../", "../" };
-    char buf[512];
-    for (int i = 0; i < 3; i++) {
-        snprintf(buf, sizeof(buf), "%s%s", prefixes[i], filename);
-        MeasReader *r = meas_reader_open(buf);
-        if (r) { meas_reader_close(r); return NULL; } /* just check if exists */
-    }
-    return NULL;
-}
 
 static const char *find_ref(const char *filename) {
     static char buf[512];

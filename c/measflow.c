@@ -406,6 +406,7 @@ struct MeasChannelWriter {
     /* User-defined properties (excluding auto-generated stats) */
     int          property_count;
     ByteBuf      props_blob;
+    int          sealed;    /* set once metadata has been written; rejects further property changes */
 };
 
 struct MeasGroupWriter {
@@ -416,6 +417,7 @@ struct MeasGroupWriter {
     /* Pre-serialised key-value property pairs (excluding the leading count int32) */
     int                 property_count;
     ByteBuf             props_blob;
+    int                 sealed; /* set once metadata has been written; rejects further property changes */
 };
 
 struct MeasWriter {
@@ -643,16 +645,23 @@ static int ensure_metadata(MeasWriter *w) {
     if (w->metadata_written) return 1;
     w->metadata_written = 1;
 
+    /* Seal all groups and channels so property setters are rejected */
+    for (int gi = 0; gi < w->group_count; gi++) {
+        w->groups[gi]->sealed = 1;
+        for (int ci = 0; ci < w->groups[gi]->channel_count; ci++)
+            w->groups[gi]->channels[ci]->sealed = 1;
+    }
+
     /* Assign global channel indices */
     int idx = 0;
     for (int gi = 0; gi < w->group_count; gi++)
         for (int ci = 0; ci < w->groups[gi]->channel_count; ci++)
             w->groups[gi]->channels[ci]->global_index = idx++;
 
-    /* Write actual file header with MEAS_FLAG_HAS_FILE_PROPERTIES set */
+    /* Write actual file header with MEAS_FLAG_EXTENDED_METADATA set */
     uint8_t fhdr[64];
     encode_file_header(fhdr, w->created_at_ns, 0, w->file_id,
-                       MEAS_FLAG_HAS_FILE_PROPERTIES);
+                       MEAS_FLAG_EXTENDED_METADATA);
     if (fseek(w->file, 0, SEEK_SET) != 0) return 0;
     if (fwrite(fhdr, 1, 64, w->file) != 64) return 0;
     if (fseek(w->file, 0, SEEK_END) != 0) return 0;
@@ -1011,7 +1020,7 @@ void meas_writer_close(MeasWriter *writer) {
     /* Patch file header with final segment count */
     uint8_t fhdr[64];
     encode_file_header(fhdr, writer->created_at_ns, writer->segment_count, writer->file_id,
-                       MEAS_FLAG_HAS_FILE_PROPERTIES);
+                       MEAS_FLAG_EXTENDED_METADATA);
     fseek(writer->file, 0, SEEK_SET);
     fwrite(fhdr, 1, 64, writer->file);
 
@@ -2052,6 +2061,7 @@ void meas_bus_metadata_free(MeasBusMetadata *meta) {
 int meas_group_set_property_bin(MeasGroupWriter *g, const char *key,
                                  const uint8_t *data, int32_t len) {
     if (!g || !key || (!data && len > 0)) return -1;
+    if (g->sealed) return -1;
     if (!bbuf_append_string(&g->props_blob, key))                  return -1;
     if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_BINARY)) return -1;
     if (!bbuf_append_le32  (&g->props_blob, (uint32_t)len))        return -1;
@@ -2062,6 +2072,7 @@ int meas_group_set_property_bin(MeasGroupWriter *g, const char *key,
 
 int meas_group_set_property_str(MeasGroupWriter *g, const char *key, const char *value) {
     if (!g || !key || !value) return -1;
+    if (g->sealed) return -1;
     if (!bbuf_append_string(&g->props_blob, key))                   return -1;
     if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_STRING))  return -1;
     if (!bbuf_append_string(&g->props_blob, value))                 return -1;
@@ -2071,6 +2082,7 @@ int meas_group_set_property_str(MeasGroupWriter *g, const char *key, const char 
 
 int meas_group_set_property_i32(MeasGroupWriter *g, const char *key, int32_t value) {
     if (!g || !key) return -1;
+    if (g->sealed) return -1;
     if (!bbuf_append_string(&g->props_blob, key))                  return -1;
     if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_INT32))  return -1;
     if (!bbuf_append_le32  (&g->props_blob, (uint32_t)value))      return -1;
@@ -2080,6 +2092,7 @@ int meas_group_set_property_i32(MeasGroupWriter *g, const char *key, int32_t val
 
 int meas_group_set_property_f64(MeasGroupWriter *g, const char *key, double value) {
     if (!g || !key) return -1;
+    if (g->sealed) return -1;
     if (!bbuf_append_string(&g->props_blob, key))                   return -1;
     if (!bbuf_append_u8    (&g->props_blob, (uint8_t)MEAS_FLOAT64)) return -1;
     uint8_t vb[8]; f64_to_le_bytes(vb, value);
@@ -2090,6 +2103,7 @@ int meas_group_set_property_f64(MeasGroupWriter *g, const char *key, double valu
 
 int meas_channel_set_property_str(MeasChannelWriter *ch, const char *key, const char *value) {
     if (!ch || !key || !value) return -1;
+    if (ch->sealed) return -1;
     if (!bbuf_append_string(&ch->props_blob, key))                   return -1;
     if (!bbuf_append_u8    (&ch->props_blob, (uint8_t)MEAS_STRING))  return -1;
     if (!bbuf_append_string(&ch->props_blob, value))                 return -1;
@@ -2099,6 +2113,7 @@ int meas_channel_set_property_str(MeasChannelWriter *ch, const char *key, const 
 
 int meas_channel_set_property_i32(MeasChannelWriter *ch, const char *key, int32_t value) {
     if (!ch || !key) return -1;
+    if (ch->sealed) return -1;
     if (!bbuf_append_string(&ch->props_blob, key))                  return -1;
     if (!bbuf_append_u8    (&ch->props_blob, (uint8_t)MEAS_INT32))  return -1;
     if (!bbuf_append_le32  (&ch->props_blob, (uint32_t)value))      return -1;
@@ -2108,6 +2123,7 @@ int meas_channel_set_property_i32(MeasChannelWriter *ch, const char *key, int32_
 
 int meas_channel_set_property_f64(MeasChannelWriter *ch, const char *key, double value) {
     if (!ch || !key) return -1;
+    if (ch->sealed) return -1;
     if (!bbuf_append_string(&ch->props_blob, key))                   return -1;
     if (!bbuf_append_u8    (&ch->props_blob, (uint8_t)MEAS_FLOAT64)) return -1;
     uint8_t vb[8]; f64_to_le_bytes(vb, value);
@@ -2528,7 +2544,7 @@ MeasReader *meas_reader_open(const char *path) {
         if (seg_type == MEAS_SEG_TYPE_METADATA) {
             /* Decode metadata first so channels exist for data segments */
             decode_metadata_segment(r, content, content_sz,
-                                       (file_flags & MEAS_FLAG_HAS_FILE_PROPERTIES) ? 1 : 0);
+                                       (file_flags & MEAS_FLAG_EXTENDED_METADATA) ? 1 : 0);
             /* Build flat channel index */
             total_channels = 0;
             for (int gi = 0; gi < r->group_count; gi++)

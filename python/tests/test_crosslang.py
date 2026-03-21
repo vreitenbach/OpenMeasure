@@ -6,13 +6,12 @@ The reference values must match exactly across all three implementations.
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from measflow import MeasReader, MeasWriter, MeasDataType, MeasTimestamp
+from measflow import MeasReader, MeasWriter, MeasDataType
 from measflow.types import MeasValue
 from measflow.bus import (
     BusChannelDefinition, CanBusConfig, CanFrameDefinition, SignalDefinition,
