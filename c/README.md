@@ -16,20 +16,40 @@ conforming to the [format specification](../SPECIFICATION.md) v1.
   and vice versa
 - **Big-endian safe** — explicit little-endian byte-order conversion for all
   multi-byte values
-- **Zero external dependencies** — only C99 standard library + POSIX time
+- **Minimal dependencies** — C99 standard library + optional LZ4/Zstd compression
 
 ## Building
 
 Requires CMake >= 3.14 and a C99-capable compiler.
 
+LZ4 and Zstd compression are enabled by default. To build with compression support,
+provide the dependencies via vcpkg or your system package manager:
+
 ```sh
 cd c/
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# With compression (default — requires lz4 + zstd):
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
 cmake --build build
-ctest --test-dir build        # run the test suite
+ctest --test-dir build
+
+# Without compression:
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DMEAS_WITH_LZ4=OFF -DMEAS_WITH_ZSTD=OFF
+cmake --build build
+ctest --test-dir build
 ```
 
-To compile without CMake:
+| CMake Option | Default | Description |
+|--------------|---------|-------------|
+| `MEAS_WITH_LZ4` | `ON` | Enable LZ4 compression (requires `lz4` package) |
+| `MEAS_WITH_ZSTD` | `ON` | Enable Zstd compression (requires `zstd` package) |
+| `MEAS_BUILD_TESTS` | `ON` | Build unit tests |
+| `MEAS_BUILD_QUICKSTART` | `OFF` | Build quickstart example |
+| `MEAS_BUILD_BENCHMARKS` | `OFF` | Build benchmarks (optional HDF5) |
+
+To compile without CMake (no compression):
 
 ```sh
 cc -std=c99 -I. -o my_app my_app.c measflow.c

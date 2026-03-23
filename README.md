@@ -4,7 +4,7 @@
 
 Open, high-performance measurement data format with multi-language support. Simple like TDMS, powerful like MDF4.
 
-**MIT License** | **Zero dependencies**
+**MIT License** | **Minimal dependencies** (optional LZ4/Zstd compression)
 
 [![NuGet](https://img.shields.io/nuget/v/MeasFlow)](https://www.nuget.org/packages/MeasFlow)
 [![PyPI](https://img.shields.io/pypi/v/measflow)](https://pypi.org/project/measflow/)
@@ -78,8 +78,17 @@ To use measflow via vcpkg, add a `vcpkg-configuration.json` to your project (req
 
 ```sh
 cd c
-cmake -B build -DMEAS_BUILD_QUICKSTART=ON
+
+# With compression (requires lz4 + zstd via vcpkg):
+cmake -B build -DMEAS_BUILD_QUICKSTART=ON \
+  -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
 cmake --build build
+
+# Without compression:
+cmake -B build -DMEAS_BUILD_QUICKSTART=ON \
+  -DMEAS_WITH_LZ4=OFF -DMEAS_WITH_ZSTD=OFF
+cmake --build build
+
 ./build/quickstart
 ```
 
@@ -223,12 +232,16 @@ python benchmarks/cross_language.py           # Cross-language comparison
 ### C
 
 ```bash
-# With HDF5 comparison (requires vcpkg install hdf5):
+# With HDF5 comparison (requires vcpkg: hdf5, lz4, zstd):
 cmake -B build -S c -DMEAS_BUILD_BENCHMARKS=ON \
   -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
 cmake --build build --config Release
 ./build/bench_format_comparison               # MeasFlow vs HDF5 (libhdf5)
 ./build/bench_cross_language                  # Cross-language comparison
+
+# Without compression dependencies:
+cmake -B build -S c -DMEAS_BUILD_BENCHMARKS=ON \
+  -DMEAS_WITH_LZ4=OFF -DMEAS_WITH_ZSTD=OFF
 ```
 
 ## Project Structure
