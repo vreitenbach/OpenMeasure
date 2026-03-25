@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MeasFlow - Open, high-performance measurement data format with multi-language support. Simple like TDMS, powerful like MDF4.">
+    <title>MeasFlow - High-Performance Measurement Data Format</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <nav class="container">
+            <div class="logo">
+                <h1>MeasFlow</h1>
+                <span class="tagline">.meas</span>
+            </div>
+            <div class="nav-links">
+                <a href="https://github.com/vreitenbach/MeasFlow">GitHub</a>
+                <a href="https://github.com/vreitenbach/MeasFlow/blob/main/SPECIFICATION.md">Specification</a>
+                <a href="https://www.nuget.org/packages/MeasFlow">NuGet</a>
+                <a href="https://pypi.org/project/measflow/">PyPI</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <div class="hero-content">
+                    <div class="prototype-badge">⚠️ Prototype Stage</div>
+                    <h2>Open, High-Performance Measurement Data Format</h2>
+                    <p class="subtitle">Simple like TDMS, powerful like MDF4</p>
+                    <div class="badges">
+                        <img src="https://img.shields.io/nuget/v/MeasFlow" alt="NuGet">
+                        <img src="https://img.shields.io/pypi/v/measflow" alt="PyPI">
+                        <img src="https://img.shields.io/badge/vcpkg-registry-blue" alt="vcpkg">
+                        <img src="https://github.com/vreitenbach/MeasFlow/actions/workflows/ci.yml/badge.svg" alt="CI">
+                    </div>
+                    <div class="hero-buttons">
+                        <a href="https://github.com/vreitenbach/MeasFlow#installation" class="btn btn-primary">Get Started</a>
+                        <a href="https://github.com/vreitenbach/MeasFlow" class="btn btn-secondary">View on GitHub</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="container">
+                <h3>Why MeasFlow?</h3>
+                <div class="feature-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🚀</div>
+                        <h4>High Performance</h4>
+                        <p>Streaming-first architecture with zero-copy reads and memory-mapped I/O</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🔓</div>
+                        <h4>Open & Free</h4>
+                        <p>MIT License with minimal dependencies - no vendor lock-in</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🌐</div>
+                        <h4>Multi-Language</h4>
+                        <p>Native support for C#, Python, and C with consistent APIs</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🚗</div>
+                        <h4>Automotive Ready</h4>
+                        <p>First-class support for CAN, CAN-FD, LIN, FlexRay, and Ethernet bus data</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">💾</div>
+                        <h4>Efficient Compression</h4>
+                        <p>Optional LZ4/Zstd compression for reduced storage</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">📊</div>
+                        <h4>Instant Statistics</h4>
+                        <p>Min/Max/Mean/StdDev computed during write, available instantly on read</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="comparison">
+            <div class="container">
+                <h3>Comparison with Existing Formats</h3>
+                <div class="comparison-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Format</th>
+                                <th>Limitations</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>TDMS</strong> (NI)</td>
+                                <td>Proprietary, limited bus data support</td>
+                            </tr>
+                            <tr>
+                                <td><strong>HDF5</strong></td>
+                                <td>Complex C-based API, poor .NET interop</td>
+                            </tr>
+                            <tr>
+                                <td><strong>MDF4</strong> (ASAM)</td>
+                                <td>Extremely complex spec, restricted tooling</td>
+                            </tr>
+                            <tr class="highlight">
+                                <td><strong>MeasFlow</strong></td>
+                                <td>✅ Clean, open alternative with modern architecture</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section class="installation">
+            <div class="container">
+                <h3>Quick Installation</h3>
+                <div class="install-grid">
+                    <div class="install-card">
+                        <h4>C# / .NET</h4>
+                        <pre><code>dotnet add package MeasFlow</code></pre>
+                        <a href="https://www.nuget.org/packages/MeasFlow" class="link">View on NuGet →</a>
+                    </div>
+                    <div class="install-card">
+                        <h4>Python</h4>
+                        <pre><code>pip install measflow</code></pre>
+                        <a href="https://pypi.org/project/measflow/" class="link">View on PyPI →</a>
+                    </div>
+                    <div class="install-card">
+                        <h4>C (vcpkg)</h4>
+                        <pre><code>vcpkg install measflow</code></pre>
+                        <a href="https://github.com/vreitenbach/vcpkg-registry" class="link">View vcpkg registry →</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="code-example">
+            <div class="container">
+                <h3>Simple API Example</h3>
+                <div class="code-tabs">
+                    <div class="tab-buttons">
+                        <button class="tab-btn active" data-tab="csharp">C#</button>
+                        <button class="tab-btn" data-tab="python">Python</button>
+                        <button class="tab-btn" data-tab="c">C</button>
+                    </div>
+                    <div class="tab-content">
+                        <div class="tab-pane active" id="csharp">
+                            <pre><code>// Write measurement data
+using var writer = MeasFile.CreateWriter("data.meas");
+var group = writer.AddGroup("Sensors");
+var temp = group.AddChannel&lt;float&gt;("Temperature");
+
+temp.Write(25.5f);
+writer.Flush();
+
+// Read measurement data
+using var reader = MeasFile.OpenRead("data.meas");
+var channel = reader["Sensors"]["Temperature"];
+var stats = channel.Statistics;
+Console.WriteLine($"Mean: {stats?.Mean}");
+</code></pre>
+                        </div>
+                        <div class="tab-pane" id="python">
+                            <pre><code># Write measurement data
+with meas.Writer("data.meas") as writer:
+    group = writer.add_group("Sensors")
+    temp = group.add_channel("Temperature", "float32")
+    temp.write([25.5])
+    writer.flush()
+
+# Read measurement data
+with meas.Reader("data.meas") as reader:
+    channel = reader["Sensors"]["Temperature"]
+    stats = channel.statistics
+    print(f"Mean: {stats.mean}")
+</code></pre>
+                        </div>
+                        <div class="tab-pane" id="c">
+                            <pre><code>// Write measurement data
+meas_writer_t* writer = meas_writer_create("data.meas");
+meas_group_t* group = meas_writer_add_group(writer, "Sensors");
+meas_channel_t* temp = meas_group_add_channel(group, "Temperature", MEAS_TYPE_FLOAT32);
+
+float value = 25.5f;
+meas_channel_write_float32(temp, &value, 1);
+meas_writer_flush(writer);
+meas_writer_destroy(writer);
+
+// Read measurement data
+meas_reader_t* reader = meas_reader_open("data.meas");
+meas_channel_t* channel = meas_reader_get_channel(reader, "Sensors", "Temperature");
+meas_statistics_t stats = meas_channel_get_statistics(channel);
+printf("Mean: %f\n", stats.mean);
+meas_reader_destroy(reader);
+</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="architecture">
+            <div class="container">
+                <h3>Streaming Architecture</h3>
+                <p class="section-intro">MeasFlow is streaming-first — write and read data incrementally without holding entire files in memory</p>
+                <div class="arch-diagram">
+                    <pre>
+┌───────────────────┐
+│  File Header 64B  │  Magic: MEAS\0, Version, GUID, Timestamp
+├───────────────────┤
+│  Metadata Segment │  Groups, channels, properties, bus definitions
+│  → NextOffset ────┼──┐
+├───────────────────┤  │
+│  Data Segment #1  │◄─┘  First Flush() result
+│  → NextOffset ────┼──┐
+├───────────────────┤  │
+│  Data Segment #2  │◄─┘  Second Flush() result
+│  → NextOffset ────┼──┐
+├───────────────────┤  │
+│  Data Segment #N  │◄─┘  Final Dispose() data
+└───────────────────┘
+                    </pre>
+                </div>
+            </div>
+        </section>
+
+        <section class="bus-data">
+            <div class="container">
+                <h3>Bus Data Support (MDF4-compatible)</h3>
+                <div class="bus-features">
+                    <ul class="feature-list">
+                        <li><strong>Bus types:</strong> CAN 2.0A/B, CAN-FD, LIN, FlexRay, Ethernet, MOST</li>
+                        <li><strong>Signal definitions:</strong> Start bit, bit length, Intel/Motorola byte order, factor/offset</li>
+                        <li><strong>PDU layer:</strong> AUTOSAR I-PDU with Container-PDU and Contained-PDU support</li>
+                        <li><strong>Multiplexing:</strong> MUX signals with nested multiplexing and range conditions</li>
+                        <li><strong>E2E Protection:</strong> AUTOSAR Profile 01-11, CRC/Counter positions</li>
+                        <li><strong>SecOC:</strong> Secure Onboard Communication with CMAC-AES/HMAC-SHA</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="resources">
+            <div class="container">
+                <h3>Documentation & Resources</h3>
+                <div class="resource-grid">
+                    <a href="https://github.com/vreitenbach/MeasFlow/blob/main/README.md" class="resource-card">
+                        <h4>📖 README</h4>
+                        <p>Getting started guide and overview</p>
+                    </a>
+                    <a href="https://github.com/vreitenbach/MeasFlow/blob/main/SPECIFICATION.md" class="resource-card">
+                        <h4>📋 Specification</h4>
+                        <p>Complete binary format specification</p>
+                    </a>
+                    <a href="https://github.com/vreitenbach/MeasFlow/blob/main/CONCEPT.md" class="resource-card">
+                        <h4>💡 Concept</h4>
+                        <p>Design goals and architecture (German)</p>
+                    </a>
+                    <a href="https://github.com/vreitenbach/MeasFlow/tree/main/csharp/samples/QuickStart" class="resource-card">
+                        <h4>🚀 Quick Start</h4>
+                        <p>Sample code and tutorials</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="cta">
+            <div class="container">
+                <h3>Ready to Get Started?</h3>
+                <p>MeasFlow is open source and available under the MIT License</p>
+                <div class="cta-buttons">
+                    <a href="https://github.com/vreitenbach/MeasFlow#installation" class="btn btn-primary btn-large">Install Now</a>
+                    <a href="https://github.com/vreitenbach/MeasFlow/issues" class="btn btn-secondary btn-large">Report an Issue</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 MeasFlow. Licensed under the <a href="https://github.com/vreitenbach/MeasFlow/blob/main/LICENSE">MIT License</a>.</p>
+            <p>
+                <a href="https://github.com/vreitenbach/MeasFlow">GitHub</a> ·
+                <a href="https://github.com/vreitenbach/MeasFlow/blob/main/SPECIFICATION.md">Specification</a> ·
+                <a href="https://github.com/vreitenbach/MeasFlow/blob/main/THIRD-PARTY-NOTICES.md">Third-Party Notices</a>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Tab switching functionality
+        document.querySelectorAll('.tab-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.getAttribute('data-tab');
+
+                // Update active button
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+
+                // Update active tab content
+                document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+                document.getElementById(tabName).classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
