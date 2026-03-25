@@ -1,0 +1,48 @@
+/* Custom styles for MkDocs Material theme */
+
+/* Material design cards */
+.grid.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+}
+
+.grid.cards > div {
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    transition: all 0.3s;
+}
+
+.grid.cards > div:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+/* Admonition customization */
+.admonition {
+    margin: 1.5rem 0;
+}
+
+/* Code block enhancements */
+.highlight {
+    margin: 1rem 0;
+}
+
+/* Table styling */
+table {
+    width: 100%;
+    margin: 1.5rem 0;
+}
+
+/* Button customization */
+.md-button {
+    margin: 0.5rem 0.5rem 0.5rem 0;
+}
+
+/* Responsive images */
+img {
+    max-width: 100%;
+    height: auto;
+}

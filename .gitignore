@@ -11,4 +11,5 @@ TestResults/
 results/
 build/
 *.pyc
-ref_*.meas
+ref_*.meassite/
+docs-old/
