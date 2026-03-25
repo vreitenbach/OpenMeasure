@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - claude/create-homepage  # Temporary: for testing before PR is merged
   workflow_dispatch:
 
 permissions:
