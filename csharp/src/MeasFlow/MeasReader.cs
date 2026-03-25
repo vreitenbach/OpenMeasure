@@ -22,11 +22,20 @@ public sealed class MeasReader : IDisposable
     private readonly Dictionary<string, MeasValue> _fileProperties = [];
     private readonly List<MeasChannel> _allChannels = [];
     private bool _disposed;
+    private unsafe byte* _mmfBasePtr;
+    private bool _ptrAcquired;
 
-    private MeasReader(MemoryMappedFile mmf, MemoryMappedViewAccessor accessor)
+    /// <summary>Base pointer into the memory-mapped file (null if not available).</summary>
+    internal unsafe byte* MmfBasePointer => _mmfBasePtr;
+
+    private unsafe MeasReader(MemoryMappedFile mmf, MemoryMappedViewAccessor accessor)
     {
         _mmf = mmf;
         _accessor = accessor;
+        // Acquire pointer once for the lifetime of the reader
+        accessor.SafeMemoryMappedViewHandle.AcquirePointer(ref _mmfBasePtr);
+        _mmfBasePtr += accessor.PointerOffset;
+        _ptrAcquired = true;
     }
 
     /// <summary>
@@ -87,22 +96,31 @@ public sealed class MeasReader : IDisposable
             if (contentStart + segHeader.ContentLength > fileLength)
                 break;
 
-            var content = new byte[segHeader.ContentLength];
-            ReadBytes(contentStart, content);
-
-            // Decompress if segment is compressed
             var compression = FromFlags(segHeader.Flags);
-            if (compression != MeasCompression.None)
-                content = Decompress(content, compression);
 
-            switch (segHeader.Type)
+            if (segHeader.Type == SegmentType.Data && compression == MeasCompression.None)
             {
-                case SegmentType.Metadata:
-                    ProcessMetadata(content);
-                    break;
-                case SegmentType.Data:
-                    ProcessData(content);
-                    break;
+                // Uncompressed data: parse chunk headers directly from MMF
+                // without allocating the full segment content buffer
+                ProcessDataDirect(contentStart, segHeader.ContentLength);
+            }
+            else
+            {
+                var content = new byte[segHeader.ContentLength];
+                ReadBytes(contentStart, content);
+
+                if (compression != MeasCompression.None)
+                    content = Decompress(content, compression);
+
+                switch (segHeader.Type)
+                {
+                    case SegmentType.Metadata:
+                        ProcessMetadata(content);
+                        break;
+                    case SegmentType.Data:
+                        ProcessData(content);
+                        break;
+                }
             }
 
             if (segHeader.NextSegmentOffset <= offset)
@@ -113,7 +131,9 @@ public sealed class MeasReader : IDisposable
 
     private void ReadBytes(long position, Span<byte> buffer)
     {
-        _accessor!.ReadArray(position, _readTemp ??= new byte[buffer.Length], 0, buffer.Length);
+        if (_readTemp == null || _readTemp.Length < buffer.Length)
+            _readTemp = new byte[buffer.Length];
+        _accessor!.ReadArray(position, _readTemp, 0, buffer.Length);
         _readTemp.AsSpan(0, buffer.Length).CopyTo(buffer);
     }
 
@@ -125,7 +145,7 @@ public sealed class MeasReader : IDisposable
         _accessor!.ReadArray(position, buffer, 0, buffer.Length);
     }
 
-    private void ProcessMetadata(byte[] content)
+    private unsafe void ProcessMetadata(byte[] content)
     {
         bool extended = (Header.Flags & FileHeader.FlagExtendedMetadata) != 0;
         var groupDefs = MetadataEncoder.Decode(content,
@@ -139,6 +159,7 @@ public sealed class MeasReader : IDisposable
             foreach (var cd in gd.Channels)
             {
                 var channel = new MeasChannel(cd.Name, cd.DataType, globalIndex, cd.Properties);
+                channel.SetMmfBasePointer(_mmfBasePtr);
                 channels.Add(channel);
                 while (_allChannels.Count <= globalIndex)
                     _allChannels.Add(null!);
@@ -182,10 +203,49 @@ public sealed class MeasReader : IDisposable
         }
     }
 
+    /// <summary>
+    /// Parse an uncompressed data segment directly from the MMF without allocating
+    /// a buffer for the full segment content. Only the chunk headers (~20 bytes each)
+    /// are read; data chunk references point directly into the MMF.
+    /// </summary>
+    private void ProcessDataDirect(long contentStart, long contentLength)
+    {
+        // Read chunk count (4 bytes)
+        Span<byte> countBuf = stackalloc byte[4];
+        ReadBytes(contentStart, countBuf);
+        int chunkCount = BinaryPrimitives.ReadInt32LittleEndian(countBuf);
+
+        long pos = contentStart + 4;
+        Span<byte> hdrBuf = stackalloc byte[DataEncoder.ChunkHeaderSize];
+
+        for (int i = 0; i < chunkCount; i++)
+        {
+            ReadBytes(pos, hdrBuf);
+            int hdrOffset = 0;
+            var (channelIndex, sampleCount, dataByteLength) =
+                DataEncoder.ReadChunkHeader(hdrBuf, ref hdrOffset);
+            pos += DataEncoder.ChunkHeaderSize;
+
+            long dataFileOffset = pos;
+            pos += dataByteLength;
+
+            if (channelIndex < _allChannels.Count && _allChannels[channelIndex] != null)
+            {
+                _allChannels[channelIndex].AddChunk(
+                    new DataChunkRef(sampleCount, _accessor!, dataFileOffset, (int)dataByteLength));
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+        if (_ptrAcquired)
+        {
+            _accessor!.SafeMemoryMappedViewHandle.ReleasePointer();
+            _ptrAcquired = false;
+        }
         _accessor?.Dispose();
         _mmf?.Dispose();
     }

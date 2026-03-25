@@ -1,4 +1,5 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.IO.MemoryMappedFiles;
+using System.Runtime.InteropServices;
 
 namespace MeasFlow;
 
@@ -32,6 +33,8 @@ public sealed class MeasChannel
     private readonly Dictionary<string, MeasValue> _properties;
     private readonly List<DataChunkRef> _chunks;
 
+    private unsafe byte* _mmfBasePtr;
+
     internal MeasChannel(string name, MeasDataType dataType, int index, Dictionary<string, MeasValue> properties)
     {
         Name = name;
@@ -41,6 +44,8 @@ public sealed class MeasChannel
         _chunks = [];
     }
 
+    internal unsafe void SetMmfBasePointer(byte* ptr) => _mmfBasePtr = ptr;
+
     internal void AddChunk(DataChunkRef chunk)
     {
         _chunks.Add(chunk);
@@ -48,7 +53,7 @@ public sealed class MeasChannel
     }
 
     /// <summary>Read all samples as a typed array.</summary>
-    public T[] ReadAll<T>() where T : unmanaged
+    public unsafe T[] ReadAll<T>() where T : unmanaged
     {
         ValidateType<T>();
         int totalSamples = checked((int)SampleCount);
@@ -58,7 +63,9 @@ public sealed class MeasChannel
         foreach (var chunk in _chunks)
         {
             int count = (int)chunk.SampleCount;
-            var sourceBytes = chunk.GetBytes();
+            ReadOnlySpan<byte> sourceBytes = _mmfBasePtr != null
+                ? chunk.GetBytes(_mmfBasePtr)
+                : chunk.GetBytes();
             var sourceSpan = MemoryMarshal.Cast<byte, T>(sourceBytes);
             sourceSpan[..count].CopyTo(result.AsSpan(destOffset));
             destOffset += count;
@@ -126,23 +133,74 @@ public sealed class MeasChannel
 }
 
 /// <summary>
-/// Reference to a chunk of raw data bytes within the file.
-/// Zero-copy: stores a reference to the segment content array with offset/length.
+/// Reference to a chunk of raw data bytes — either in a byte[] (decompressed) or
+/// directly in the memory-mapped file (uncompressed, zero-copy).
 /// </summary>
 internal readonly struct DataChunkRef
 {
     public readonly long SampleCount;
-    private readonly byte[] _data;
+    private readonly byte[]? _data;
     private readonly int _offset;
     private readonly int _length;
+    private readonly MemoryMappedViewAccessor? _accessor;
+    private readonly long _fileOffset;
 
+    /// <summary>Create a chunk reference backed by a byte array (decompressed data).</summary>
     public DataChunkRef(long sampleCount, byte[] data, int offset, int length)
     {
         SampleCount = sampleCount;
         _data = data;
         _offset = offset;
         _length = length;
+        _accessor = null;
+        _fileOffset = 0;
     }
 
-    public ReadOnlySpan<byte> GetBytes() => _data.AsSpan(_offset, _length);
+    /// <summary>Create a chunk reference backed directly by the memory-mapped file.</summary>
+    public DataChunkRef(long sampleCount, MemoryMappedViewAccessor accessor, long fileOffset, int length)
+    {
+        SampleCount = sampleCount;
+        _data = null;
+        _offset = 0;
+        _length = length;
+        _accessor = accessor;
+        _fileOffset = fileOffset;
+    }
+
+    /// <summary>Read the chunk bytes into a destination buffer (avoids intermediate allocation).</summary>
+    public void CopyTo(byte[] destination, int destOffset)
+    {
+        if (_data != null)
+        {
+            Buffer.BlockCopy(_data, _offset, destination, destOffset, _length);
+        }
+        else
+        {
+            _accessor!.ReadArray(_fileOffset, destination, destOffset, _length);
+        }
+    }
+
+    /// <summary>
+    /// Get the raw bytes for this chunk. For MMF-backed chunks, returns a span
+    /// over the memory-mapped region (true zero-copy, no allocation).
+    /// The caller must pass the base pointer obtained from the MeasReader.
+    /// </summary>
+    public unsafe ReadOnlySpan<byte> GetBytes(byte* mmfBasePtr)
+    {
+        if (_data != null)
+            return _data.AsSpan(_offset, _length);
+
+        return new ReadOnlySpan<byte>(mmfBasePtr + _fileOffset, _length);
+    }
+
+    public ReadOnlySpan<byte> GetBytes()
+    {
+        if (_data != null)
+            return _data.AsSpan(_offset, _length);
+
+        // Fallback: allocate and read from MMF
+        var buf = new byte[_length];
+        _accessor!.ReadArray(_fileOffset, buf, 0, _length);
+        return buf;
+    }
 }

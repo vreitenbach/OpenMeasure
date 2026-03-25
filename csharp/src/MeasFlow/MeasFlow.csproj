@@ -16,6 +16,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageTags>measurement;binary;streaming;lz4;zstd;can;lin;flexray;automotive</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>CS1591</NoWarn>
   </PropertyGroup>

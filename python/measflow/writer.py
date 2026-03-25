@@ -204,21 +204,20 @@ class ChannelWriter:
     def write_bulk(self, values: Any) -> None:
         """Append an array or iterable of samples.
 
-        For numpy arrays with numeric types, the data is serialized immediately
-        to avoid storing Python objects in a list. This is the fast path.
+        For numpy arrays with numeric types, the data buffer is kept as-is
+        (zero-copy) to avoid unnecessary memory allocation. This is the fast path.
         """
         dt = self.data_type
         if isinstance(values, np.ndarray) and dt in _TYPE_NUMPY:
-            # Fast path: serialize numpy array directly to bytes
-            arr = np.asarray(values, dtype=_TYPE_NUMPY[dt])
-            self._buffers.append(arr.tobytes())
+            # Fast path: keep numpy buffer directly (zero-copy)
+            arr = np.ascontiguousarray(values, dtype=_TYPE_NUMPY[dt])
+            self._buffers.append(arr)
             self._sample_count += len(arr)
             if self._stats is not None:
                 self._stats.update_bulk(arr)
         elif isinstance(values, np.ndarray) and dt == MeasDataType.Timestamp:
-            arr = np.asarray(values, dtype="<i8")
-            self._buffers.append(arr.tobytes())
-            self._sample_count += len(arr)
+            arr = np.ascontiguousarray(values, dtype="<i8")
+            self._buffers.append(arr)
         else:
             # Slow path: per-element (Binary, String, or non-array input)
             if self._stats is not None:
@@ -235,38 +234,67 @@ class ChannelWriter:
     def sample_count(self) -> int:
         return self._sample_count
 
-    def _to_bytes(self) -> bytes:
-        """Serialize all buffered data to bytes."""
-        parts = list(self._buffers)  # pre-serialized chunks
-
-        # Serialize any remaining per-element samples
-        if self._samples:
+    def _data_length(self) -> int:
+        """Return the total byte length of buffered data without copying."""
+        n = 0
+        for buf in self._buffers:
+            n += buf.nbytes if isinstance(buf, np.ndarray) else len(buf)
+        for v in self._samples:
             dt = self.data_type
-            if dt == MeasDataType.Timestamp:
-                ns = [
-                    v.nanoseconds if isinstance(v, MeasTimestamp) else int(v)
-                    for v in self._samples
-                ]
-                parts.append(np.array(ns, dtype="<i8").tobytes())
-            elif dt in _TYPE_NUMPY:
-                parts.append(np.array(self._samples, dtype=_TYPE_NUMPY[dt]).tobytes())
-            elif dt == MeasDataType.Binary:
-                frame_parts = []
-                for v in self._samples:
-                    b = bytes(v)
-                    frame_parts.append(struct.pack("<i", len(b)))
-                    frame_parts.append(b)
-                parts.append(b"".join(frame_parts))
+            if dt == MeasDataType.Binary:
+                n += 4 + len(bytes(v))
             elif dt == MeasDataType.Utf8String:
-                frame_parts = []
-                for v in self._samples:
-                    encoded = v.encode("utf-8") if isinstance(v, str) else bytes(v)
-                    frame_parts.append(struct.pack("<i", len(encoded)))
-                    frame_parts.append(encoded)
-                parts.append(b"".join(frame_parts))
-            else:
-                raise ValueError(f"Cannot serialize channel type {dt!r}")
+                n += 4 + len(v.encode("utf-8") if isinstance(v, str) else bytes(v))
+            elif dt == MeasDataType.Timestamp:
+                n += 8
+            elif dt in _TYPE_NUMPY:
+                n += np.dtype(_TYPE_NUMPY[dt]).itemsize
+        return n
 
+    def _write_data_to(self, f) -> None:
+        """Write all buffered data directly to a file object (zero-copy for numpy)."""
+        for buf in self._buffers:
+            if isinstance(buf, np.ndarray):
+                f.write(buf.data)
+            else:
+                f.write(buf)
+        if self._samples:
+            # Fall back to serialization for variable-size types
+            f.write(self._serialize_samples())
+
+    def _serialize_samples(self) -> bytes:
+        """Serialize per-element samples to bytes."""
+        dt = self.data_type
+        if dt == MeasDataType.Timestamp:
+            ns = [
+                v.nanoseconds if isinstance(v, MeasTimestamp) else int(v)
+                for v in self._samples
+            ]
+            return np.array(ns, dtype="<i8").tobytes()
+        if dt in _TYPE_NUMPY:
+            return np.array(self._samples, dtype=_TYPE_NUMPY[dt]).tobytes()
+        if dt == MeasDataType.Binary:
+            frame_parts = []
+            for v in self._samples:
+                b = bytes(v)
+                frame_parts.append(struct.pack("<i", len(b)))
+                frame_parts.append(b)
+            return b"".join(frame_parts)
+        if dt == MeasDataType.Utf8String:
+            frame_parts = []
+            for v in self._samples:
+                encoded = v.encode("utf-8") if isinstance(v, str) else bytes(v)
+                frame_parts.append(struct.pack("<i", len(encoded)))
+                frame_parts.append(encoded)
+            return b"".join(frame_parts)
+        raise ValueError(f"Cannot serialize channel type {dt!r}")
+
+    def _to_bytes(self) -> bytes:
+        """Serialize all buffered data to bytes (used for compression fallback)."""
+        parts = [buf.tobytes() if isinstance(buf, np.ndarray) else buf
+                 for buf in self._buffers]
+        if self._samples:
+            parts.append(self._serialize_samples())
         if not parts:
             return b""
         return b"".join(parts) if len(parts) > 1 else parts[0]
@@ -517,11 +545,48 @@ class MeasWriter:
         return data, 0
 
     def _write_data_segment(self, pending: list) -> None:
-        parts = [struct.pack("<i", len(pending))]
+        if self._compression != "none":
+            # Compressed: must build full content buffer for compression
+            parts = [struct.pack("<i", len(pending))]
+            for global_idx, ch in pending:
+                raw = ch._to_bytes()
+                parts.append(struct.pack(CHUNK_HEADER_FMT, global_idx, ch.sample_count, len(raw)))
+                parts.append(raw)
+            content = b"".join(parts)
+            content, flags = self._compress(content)
+            self._write_segment(SegmentType.DATA, content, chunk_count=len(pending), flags=flags)
+            return
+
+        # Uncompressed: stream data directly to file (zero-copy for numpy)
+        # Calculate total content length without copying data
+        content_length = 4  # chunk_count (int32)
         for global_idx, ch in pending:
-            raw = ch._to_bytes()
-            parts.append(struct.pack(CHUNK_HEADER_FMT, global_idx, ch.sample_count, len(raw)))
-            parts.append(raw)
-        content = b"".join(parts)
-        content, flags = self._compress(content)
-        self._write_segment(SegmentType.DATA, content, chunk_count=len(pending), flags=flags)
+            data_len = ch._data_length()
+            content_length += struct.calcsize(CHUNK_HEADER_FMT) + data_len
+
+        # Write segment header (will be patched with next_segment_offset)
+        seg_start = self._file.tell()
+        seg = SegmentHeader(
+            type=SegmentType.DATA,
+            flags=0,
+            content_length=content_length,
+            next_segment_offset=0,
+            chunk_count=len(pending),
+            crc32=0,
+        )
+        self._file.write(seg.to_bytes())
+
+        # Write chunk count + per-channel headers + data directly
+        self._file.write(struct.pack("<i", len(pending)))
+        for global_idx, ch in pending:
+            data_len = ch._data_length()
+            self._file.write(struct.pack(CHUNK_HEADER_FMT, global_idx, ch.sample_count, data_len))
+            ch._write_data_to(self._file)
+
+        # Patch segment header with next_segment_offset
+        next_off = self._file.tell()
+        seg.next_segment_offset = next_off
+        self._file.seek(seg_start)
+        self._file.write(seg.to_bytes())
+        self._file.seek(next_off)
+        self._segment_count += 1
