@@ -224,6 +224,462 @@ meas_reader_destroy(reader);
             </div>
         </section>
 
+        <section class="api-docs">
+            <div class="container">
+                <h3>API Documentation</h3>
+                <p class="section-intro">Comprehensive API reference for all three language bindings</p>
+
+                <div class="api-tabs">
+                    <div class="tab-buttons" role="tablist" aria-label="API documentation per language">
+                        <button class="api-tab-btn active" data-tab="api-csharp" id="api-tab-csharp">C# API</button>
+                        <button class="api-tab-btn" data-tab="api-python" id="api-tab-python">Python API</button>
+                        <button class="api-tab-btn" data-tab="api-c" id="api-tab-c">C API</button>
+                    </div>
+
+                    <div class="api-tab-content">
+                        <!-- C# API -->
+                        <div class="api-tab-pane active" id="api-csharp">
+                            <h4>Writer API</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Method</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>MeasFile.CreateWriter(path)</code></td>
+                                        <td>Create a new measurement file writer</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>writer.AddGroup(name)</code></td>
+                                        <td>Add a new group to organize channels</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>group.AddChannel&lt;T&gt;(name)</code></td>
+                                        <td>Add a typed channel (T = float, double, int, bool, etc.)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.Write(value)</code></td>
+                                        <td>Write a single value to the channel</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.Write(Span&lt;T&gt;)</code></td>
+                                        <td>Write multiple values efficiently (zero-copy)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>writer.Flush()</code></td>
+                                        <td>Flush current data to a new segment on disk</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>writer.Dispose()</code></td>
+                                        <td>Finalize and close the file (auto-called with <code>using</code>)</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Reader API</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Method</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>MeasFile.OpenRead(path)</code></td>
+                                        <td>Open an existing measurement file for reading</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>reader[groupName]</code></td>
+                                        <td>Access a group by name</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>group[channelName]</code></td>
+                                        <td>Access a channel by name</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.ReadAll&lt;T&gt;()</code></td>
+                                        <td>Read all samples as ReadOnlySpan&lt;T&gt;</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.ReadChunks&lt;T&gt;()</code></td>
+                                        <td>Iterate through data chunks (streaming)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.Statistics</code></td>
+                                        <td>Get pre-computed Min/Max/Mean/StdDev (instant, no I/O)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.Properties</code></td>
+                                        <td>Access channel metadata (unit, description, etc.)</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Bus Data API (CAN/LIN/FlexRay)</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Method</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>writer.AddBusGroup(name, config)</code></td>
+                                        <td>Add a bus channel (CAN, LIN, FlexRay, Ethernet)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>busGroup.DefineCanFrame(name, id, length)</code></td>
+                                        <td>Define a CAN frame with signals</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>frame.Signals.Add(...)</code></td>
+                                        <td>Add signal definition (start bit, length, factor, etc.)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>busGroup.WriteFrame(timestamp, id, data)</code></td>
+                                        <td>Write raw frame bytes with timestamp</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>busGroup.DecodeSignal(signalName)</code></td>
+                                        <td>Decode and extract signal values from frames</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Example: Streaming Write</h4>
+                            <pre><code>using var writer = MeasFile.CreateWriter("recording.meas");
+var sensors = writer.AddGroup("Sensors");
+var temp = sensors.AddChannel&lt;float&gt;("Temperature");
+
+while (recording) {
+    float[] batch = ReadFromSensor(batchSize: 10_000);
+    temp.Write(batch.AsSpan());
+    writer.Flush();  // Write segment, clear buffer
+}</code></pre>
+                        </div>
+
+                        <!-- Python API -->
+                        <div class="api-tab-pane" id="api-python">
+                            <h4>Writer API</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Method</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>MeasWriter(path)</code></td>
+                                        <td>Create a new measurement file writer (use with <code>with</code> statement)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>writer.add_group(name)</code></td>
+                                        <td>Add a new group to organize channels</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>group.add_channel(name, dtype)</code></td>
+                                        <td>Add a channel with data type (e.g., <code>MeasDataType.Float32</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.write(value)</code></td>
+                                        <td>Write a single value or array/list to the channel</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>writer.flush()</code></td>
+                                        <td>Flush current data to a new segment on disk</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.properties[key] = value</code></td>
+                                        <td>Set channel metadata</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Reader API</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Method</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>MeasReader(path)</code></td>
+                                        <td>Open an existing measurement file for reading</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>reader[group_name]</code></td>
+                                        <td>Access a group by name</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>group[channel_name]</code></td>
+                                        <td>Access a channel by name</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.read_all()</code></td>
+                                        <td>Read all samples as NumPy array</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.read_timestamps()</code></td>
+                                        <td>Read timestamp channel as array of datetime objects</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.statistics</code></td>
+                                        <td>Get pre-computed statistics (count, min, max, mean, std_dev)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>channel.properties[key]</code></td>
+                                        <td>Access channel metadata</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>reader.groups</code></td>
+                                        <td>Iterate over all groups in the file</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Data Types</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Type</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>MeasDataType.Int8</code> - <code>Int64</code></td>
+                                        <td>Signed integers (8-64 bit)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MeasDataType.UInt8</code> - <code>UInt64</code></td>
+                                        <td>Unsigned integers (8-64 bit)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MeasDataType.Float32</code>, <code>Float64</code></td>
+                                        <td>Floating point numbers</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MeasDataType.Bool</code></td>
+                                        <td>Boolean values</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MeasDataType.Timestamp</code></td>
+                                        <td>Nanosecond-precision timestamps</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MeasDataType.Binary</code></td>
+                                        <td>Variable-length binary frames</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Example: Read and Analyze</h4>
+                            <pre><code>with MeasReader("data.meas") as reader:
+    motor = reader["Motor"]
+
+    # Get instant statistics (no data read)
+    stats = motor["RPM"].statistics
+    print(f"RPM: {stats.min}-{stats.max}, avg={stats.mean}")
+
+    # Read all data for analysis
+    rpm_data = motor["RPM"].read_all()
+    temp_data = motor["Temperature"].read_all()
+
+    # Process with NumPy/Pandas
+    import numpy as np
+    correlation = np.corrcoef(rpm_data, temp_data)[0, 1]</code></pre>
+                        </div>
+
+                        <!-- C API -->
+                        <div class="api-tab-pane" id="api-c">
+                            <h4>Writer API</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Function</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>meas_writer_open(path)</code></td>
+                                        <td>Create a new measurement file writer</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_writer_add_group(w, name)</code></td>
+                                        <td>Add a new group, returns <code>MeasGroupWriter*</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_group_add_channel(g, name, type)</code></td>
+                                        <td>Add a channel with data type (e.g., <code>MEAS_FLOAT32</code>)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_channel_write_f32(ch, data, count)</code></td>
+                                        <td>Write float32 values (also <code>_f64</code>, <code>_i32</code>, etc.)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_channel_write_frame(ch, data, len)</code></td>
+                                        <td>Write variable-length binary frame</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_writer_flush(w)</code></td>
+                                        <td>Flush current data to a new segment</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_writer_close(w)</code></td>
+                                        <td>Finalize and close the file</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Reader API</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Function</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>meas_reader_open(path)</code></td>
+                                        <td>Open an existing measurement file</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_reader_group_by_name(r, name)</code></td>
+                                        <td>Get group by name, returns <code>const MeasGroupData*</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_group_channel_by_name(g, name)</code></td>
+                                        <td>Get channel by name, returns <code>const MeasChannelData*</code></td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_channel_read_f32(ch, buf, count)</code></td>
+                                        <td>Read float32 values into buffer (also <code>_f64</code>, <code>_i32</code>, etc.)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_channel_next_frame(ch, state, data, len)</code></td>
+                                        <td>Iterate through binary frames</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>ch->sample_count</code></td>
+                                        <td>Total number of samples in channel</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>ch->has_stats</code>, <code>ch->stats</code></td>
+                                        <td>Pre-computed statistics (min, max, mean, std_dev)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>meas_reader_close(r)</code></td>
+                                        <td>Close the reader and free resources</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Data Type Constants</h4>
+                            <table class="api-table">
+                                <thead>
+                                    <tr>
+                                        <th>Constant</th>
+                                        <th>C Type</th>
+                                        <th>Bytes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><code>MEAS_INT8</code> - <code>MEAS_INT64</code></td>
+                                        <td><code>int8_t</code> - <code>int64_t</code></td>
+                                        <td>1-8</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MEAS_UINT8</code> - <code>MEAS_UINT64</code></td>
+                                        <td><code>uint8_t</code> - <code>uint64_t</code></td>
+                                        <td>1-8</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MEAS_FLOAT32</code></td>
+                                        <td><code>float</code></td>
+                                        <td>4</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MEAS_FLOAT64</code></td>
+                                        <td><code>double</code></td>
+                                        <td>8</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MEAS_BOOL</code></td>
+                                        <td><code>uint8_t</code> (0/1)</td>
+                                        <td>1</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MEAS_TIMESTAMP</code></td>
+                                        <td><code>int64_t</code> (nanoseconds)</td>
+                                        <td>8</td>
+                                    </tr>
+                                    <tr>
+                                        <td><code>MEAS_BINARY</code></td>
+                                        <td>Variable-length frames</td>
+                                        <td>—</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <h4>Example: Error Handling</h4>
+                            <pre><code>MeasReader *r = meas_reader_open("data.meas");
+if (!r) {
+    fprintf(stderr, "Failed to open file\n");
+    return 1;
+}
+
+const MeasGroupData *g = meas_reader_group_by_name(r, "Motor");
+if (!g) {
+    fprintf(stderr, "Group 'Motor' not found\n");
+    meas_reader_close(r);
+    return 1;
+}
+
+const MeasChannelData *rpm = meas_group_channel_by_name(g, "RPM");
+if (rpm && rpm->has_stats) {
+    printf("RPM range: %.1f - %.1f\n", rpm->stats.min, rpm->stats.max);
+}
+
+meas_reader_close(r);</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="common-patterns">
+                    <h4>Common Use Cases</h4>
+                    <div class="pattern-grid">
+                        <div class="pattern-card">
+                            <h5>📊 Streaming Data Acquisition</h5>
+                            <p>Record continuous sensor data with periodic flushes to disk, keeping memory usage constant regardless of recording duration.</p>
+                        </div>
+                        <div class="pattern-card">
+                            <h5>🚗 Automotive Bus Recording</h5>
+                            <p>Capture CAN/LIN/FlexRay frames with frame definitions and signal decoding for automotive test automation.</p>
+                        </div>
+                        <div class="pattern-card">
+                            <h5>📈 Post-Processing Analysis</h5>
+                            <p>Read measurements, access instant statistics, and process data with analysis tools (NumPy, Pandas, MATLAB).</p>
+                        </div>
+                        <div class="pattern-card">
+                            <h5>🔄 Cross-Language Workflows</h5>
+                            <p>Write with C/C++ acquisition system, analyze with Python, visualize with C# tools—all using the same file format.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="architecture">
             <div class="container">
                 <h3>Streaming Architecture</h3>
@@ -316,7 +772,7 @@ meas_reader_destroy(reader);
         // Set current year in footer
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // Tab switching functionality
+        // Tab switching functionality for code examples
         document.querySelectorAll('.tab-btn').forEach(button => {
             button.addEventListener('click', () => {
                 const tabName = button.getAttribute('data-tab');
@@ -340,7 +796,31 @@ meas_reader_destroy(reader);
             });
         });
 
-        // Initialize ARIA attributes for tabs
+        // Tab switching functionality for API documentation
+        document.querySelectorAll('.api-tab-btn').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.getAttribute('data-tab');
+
+                // Update active button
+                document.querySelectorAll('.api-tab-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.setAttribute('aria-selected', 'false');
+                });
+                button.classList.add('active');
+                button.setAttribute('aria-selected', 'true');
+
+                // Update active tab content
+                document.querySelectorAll('.api-tab-pane').forEach(pane => {
+                    pane.classList.remove('active');
+                    pane.setAttribute('aria-hidden', 'true');
+                });
+                const activePane = document.getElementById(tabName);
+                activePane.classList.add('active');
+                activePane.setAttribute('aria-hidden', 'false');
+            });
+        });
+
+        // Initialize ARIA attributes for code example tabs
         document.querySelectorAll('.tab-btn').forEach((btn, index) => {
             btn.setAttribute('role', 'tab');
             btn.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
@@ -348,6 +828,18 @@ meas_reader_destroy(reader);
         });
 
         document.querySelectorAll('.tab-pane').forEach((pane, index) => {
+            pane.setAttribute('role', 'tabpanel');
+            pane.setAttribute('aria-hidden', index === 0 ? 'false' : 'true');
+        });
+
+        // Initialize ARIA attributes for API tabs
+        document.querySelectorAll('.api-tab-btn').forEach((btn, index) => {
+            btn.setAttribute('role', 'tab');
+            btn.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+            btn.setAttribute('aria-controls', btn.getAttribute('data-tab'));
+        });
+
+        document.querySelectorAll('.api-tab-pane').forEach((pane, index) => {
             pane.setAttribute('role', 'tabpanel');
             pane.setAttribute('aria-hidden', index === 0 ? 'false' : 'true');
         });
