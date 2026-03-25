@@ -4,12 +4,32 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="MeasFlow - Open, high-performance measurement data format with multi-language support. Simple like TDMS, powerful like MDF4.">
+    <meta name="keywords" content="MeasFlow, measurement data, TDMS, MDF4, HDF5, automotive, CAN, data format, open source">
+    <meta name="author" content="MeasFlow Contributors">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://vreitenbach.github.io/MeasFlow/">
+    <meta property="og:title" content="MeasFlow - High-Performance Measurement Data Format">
+    <meta property="og:description" content="Open, high-performance measurement data format with multi-language support. Simple like TDMS, powerful like MDF4.">
+    <meta property="og:image" content="https://vreitenbach.github.io/MeasFlow/og-image.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://vreitenbach.github.io/MeasFlow/">
+    <meta property="twitter:title" content="MeasFlow - High-Performance Measurement Data Format">
+    <meta property="twitter:description" content="Open, high-performance measurement data format with multi-language support. Simple like TDMS, powerful like MDF4.">
+    <meta property="twitter:image" content="https://vreitenbach.github.io/MeasFlow/og-image.png">
+
     <title>MeasFlow - High-Performance Measurement Data Format</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Skip to main content for accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
     <header>
-        <nav class="container">
+        <nav class="container" role="navigation" aria-label="Main navigation">
             <div class="logo">
                 <h1>MeasFlow</h1>
                 <span class="tagline">.meas</span>
@@ -23,8 +43,8 @@
         </nav>
     </header>
 
-    <main>
-        <section class="hero">
+    <main id="main-content">
+        <section class="hero" aria-label="Hero section">
             <div class="container">
                 <div class="hero-content">
                     <div class="prototype-badge">⚠️ Prototype Stage</div>
@@ -44,9 +64,9 @@
             </div>
         </section>
 
-        <section class="features">
+        <section class="features" aria-labelledby="features-heading">
             <div class="container">
-                <h3>Why MeasFlow?</h3>
+                <h3 id="features-heading">Why MeasFlow?</h3>
                 <div class="feature-grid">
                     <div class="feature-card">
                         <div class="feature-icon">🚀</div>
@@ -143,10 +163,10 @@
             <div class="container">
                 <h3>Simple API Example</h3>
                 <div class="code-tabs">
-                    <div class="tab-buttons">
-                        <button class="tab-btn active" data-tab="csharp">C#</button>
-                        <button class="tab-btn" data-tab="python">Python</button>
-                        <button class="tab-btn" data-tab="c">C</button>
+                    <div class="tab-buttons" role="tablist" aria-label="Code examples">
+                        <button class="tab-btn active" data-tab="csharp" id="tab-csharp">C#</button>
+                        <button class="tab-btn" data-tab="python" id="tab-python">Python</button>
+                        <button class="tab-btn" data-tab="c" id="tab-c">C</button>
                     </div>
                     <div class="tab-content">
                         <div class="tab-pane active" id="csharp">
@@ -281,9 +301,9 @@ meas_reader_destroy(reader);
         </section>
     </main>
 
-    <footer>
+    <footer role="contentinfo">
         <div class="container">
-            <p>&copy; 2026 MeasFlow. Licensed under the <a href="https://github.com/vreitenbach/MeasFlow/blob/main/LICENSE">MIT License</a>.</p>
+            <p>&copy; <span id="year"></span> MeasFlow. Licensed under the <a href="https://github.com/vreitenbach/MeasFlow/blob/main/LICENSE">MIT License</a>.</p>
             <p>
                 <a href="https://github.com/vreitenbach/MeasFlow">GitHub</a> ·
                 <a href="https://github.com/vreitenbach/MeasFlow/blob/main/SPECIFICATION.md">Specification</a> ·
@@ -293,19 +313,43 @@ meas_reader_destroy(reader);
     </footer>
 
     <script>
+        // Set current year in footer
+        document.getElementById('year').textContent = new Date().getFullYear();
+
         // Tab switching functionality
         document.querySelectorAll('.tab-btn').forEach(button => {
             button.addEventListener('click', () => {
                 const tabName = button.getAttribute('data-tab');
 
                 // Update active button
-                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.setAttribute('aria-selected', 'false');
+                });
                 button.classList.add('active');
+                button.setAttribute('aria-selected', 'true');
 
                 // Update active tab content
-                document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
-                document.getElementById(tabName).classList.add('active');
+                document.querySelectorAll('.tab-pane').forEach(pane => {
+                    pane.classList.remove('active');
+                    pane.setAttribute('aria-hidden', 'true');
+                });
+                const activePane = document.getElementById(tabName);
+                activePane.classList.add('active');
+                activePane.setAttribute('aria-hidden', 'false');
             });
+        });
+
+        // Initialize ARIA attributes for tabs
+        document.querySelectorAll('.tab-btn').forEach((btn, index) => {
+            btn.setAttribute('role', 'tab');
+            btn.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+            btn.setAttribute('aria-controls', btn.getAttribute('data-tab'));
+        });
+
+        document.querySelectorAll('.tab-pane').forEach((pane, index) => {
+            pane.setAttribute('role', 'tabpanel');
+            pane.setAttribute('aria-hidden', index === 0 ? 'false' : 'true');
         });
     </script>
 </body>
