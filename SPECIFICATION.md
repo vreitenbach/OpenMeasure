@@ -732,9 +732,17 @@ Offset  Hex                                              ASCII
 
 ## Appendix B: Version History
 
-| Version | Date       | Changes                         |
-|---------|------------|---------------------------------|
-| 1.0     | 2026-03    | Initial specification           |
+This specification covers two distinct version numbers:
+
+1. **File Format Version** (uint16 at offset 4 in file header): Bumped for breaking changes to the binary structure. Currently **1**.
+2. **Metadata Format Version** (uint8.uint8 prefix in metadata segment when ExtendedMetadata flag is set): Bumped for changes to metadata encoding. Currently **0.1**.
+
+### Metadata Format Version History
+
+| Version | Date    | Changes                                                           |
+|---------|---------|-------------------------------------------------------------------|
+| 0.1     | 2026-03 | Initial extended metadata format with file-level properties       |
+| (none)  | ≤0.3.x  | Legacy format (no version prefix, no file properties)             |
 
 ---
 
