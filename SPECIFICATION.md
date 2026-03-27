@@ -1,8 +1,10 @@
 ﻿# MeasFlow (.meas) Binary Format Specification
 
-**Version 0.4** — March 2026
+**Specification Document Version 0.4** — March 2026
 
 This document specifies the binary file format for MeasFlow (.meas) files independently of any implementation. Any conforming reader/writer in any language (C#, C, Python, Rust, MATLAB) MUST follow this specification.
+
+> **Note**: This document version (0.4) tracks the specification document itself, not the binary format versions. See [Appendix B](#appendix-b-version-history) for the binary format versioning (File Format Version and Metadata Format Version).
 
 ---
 
@@ -169,7 +171,7 @@ MetadataContent :=
   Group[groupCount]
 ```
 
-### Extended format (Flags bit 0 set) — metadata version 0.4+
+### Extended format (Flags bit 0 set) — metadata version 0.1+
 
 When the file header Flags bit 0 (`ExtendedMetadata`) is set, the metadata content begins with a 2-byte version prefix:
 
@@ -177,7 +179,7 @@ When the file header Flags bit 0 (`ExtendedMetadata`) is set, the metadata conte
 MetadataContent :=
   [uint8: metaMajor]            // Major version (breaking changes)
   [uint8: metaMinor]            // Minor version (additive features)
-  [int32: filePropertyCount]    // File-level properties (version ≥ 0.4)
+  [int32: filePropertyCount]    // File-level properties (version ≥ 0.1)
   Property[filePropertyCount]
   [int32: groupCount]
   Group[groupCount]
@@ -187,7 +189,7 @@ MetadataContent :=
 - `metaMajor > supported` → reader MUST reject with a clear error
 - `metaMinor > supported` (same major) → reader parses what it knows, ignores the rest (forward-compatible within a major version)
 
-The current metadata version is **0.4**.
+The current metadata version is **0.1**.
 
 ### Group and Channel encoding
 
@@ -206,7 +208,7 @@ Channel :=
   Property[propertyCount]
 ```
 
-**File-level properties**: Key-value pairs attached to the file itself (e.g., `TestSuite`, `Creator`, `Description`). Present when the file header Flags bit 0 (`ExtendedMetadata`) is set; applies starting from metadata version 0.4.
+**File-level properties**: Key-value pairs attached to the file itself (e.g., `TestSuite`, `Creator`, `Description`). Present when the file header Flags bit 0 (`ExtendedMetadata`) is set; applies starting from metadata version 0.1.
 
 **Channel ordering**: Channels are assigned a zero-based **global index** in the order they appear: all channels of group 0, then all channels of group 1, etc. Data chunks reference channels by this global index.
 
@@ -735,13 +737,13 @@ Offset  Hex                                              ASCII
 The .meas binary file format uses two distinct version numbers:
 
 1. **File Format Version** (uint16 at offset 4 in file header): Bumped for breaking changes to the binary structure. Currently **1**.
-2. **Metadata Format Version** ([uint8: metaMajor][uint8: metaMinor] prefix in metadata segment when ExtendedMetadata flag is set): Bumped for changes to metadata encoding. Currently **0.4**.
+2. **Metadata Format Version** ([uint8: metaMajor][uint8: metaMinor] prefix in metadata segment when ExtendedMetadata flag is set): Bumped for changes to metadata encoding. Currently **0.1**.
 
 ### Metadata Format Version History
 
 | Version | Date    | Changes                                                           |
 |---------|---------|-------------------------------------------------------------------|
-| 0.4     | 2026-03 | Extended metadata format with file-level properties               |
+| 0.1     | 2026-03 | Extended metadata format with file-level properties               |
 
 ---
 

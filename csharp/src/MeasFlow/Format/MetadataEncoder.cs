@@ -20,7 +20,7 @@ internal static class MetadataEncoder
 {
     // Current metadata format version (§6)
     public const byte MetaMajor = 0;
-    public const byte MetaMinor = 4;
+    public const byte MetaMinor = 1;
 
     /// <summary>
     /// Encode metadata. When <paramref name="extended"/> is true,
@@ -82,7 +82,7 @@ internal static class MetadataEncoder
                 throw new InvalidDataException(
                     $"Unsupported metadata minor version {major}.{minor} (max supported: {MetaMajor}.{MetaMinor})");
 
-            // File-level properties follow for all supported versions (currently 0.4).
+            // File-level properties follow for all supported versions (currently 0.1).
             var fileProps = ReadProperties(data, ref offset);
             if (filePropertiesOut != null)
             {
