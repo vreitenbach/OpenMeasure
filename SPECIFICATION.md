@@ -1,8 +1,10 @@
 ﻿# MeasFlow (.meas) Binary Format Specification
 
-**Version 0.4** — March 2026
+**Specification Document Version 0.4** — March 2026
 
 This document specifies the binary file format for MeasFlow (.meas) files independently of any implementation. Any conforming reader/writer in any language (C#, C, Python, Rust, MATLAB) MUST follow this specification.
+
+> **Note**: This document version (0.4) tracks the specification document itself, not the binary format versions. See [Appendix B](#appendix-b-version-history) for the binary format versioning (File Format Version and Metadata Format Version).
 
 ---
 
@@ -81,7 +83,7 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 | Offset | Size | Type    | Field              | Description                                      |
 |--------|------|---------|--------------------|--------------------------------------------------|
 | 0      | 4    | uint32  | Magic              | `0x5341454D` = ASCII `"MEAS\0"` (LE)              |
-| 4      | 2    | uint16  | Version            | Format version. Currently `1`.                    |
+| 4      | 2    | uint16  | Version            | Format variant identifier. Currently `1`.         |
 | 6      | 2    | uint16  | Flags              | Bit flags (see §4a-flags below).                 |
 | 8      | 8    | int64   | FirstSegmentOffset | Absolute byte offset to the first segment. Usually `64`. |
 | 16     | 8    | int64   | IndexOffset        | Reserved. Must be `0` for version 1.             |
@@ -92,7 +94,9 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 
 **Magic byte pattern** (hex): `4D 45 41 53`
 
-**Version negotiation**: Readers MUST reject files with `Version > 1` unless they understand the newer version. Readers MUST reject files where `Magic ≠ 0x5341454D`.
+**Version field**: This is a format variant identifier, not a semantic version number. Readers MUST use exact-match validation (`Version == 1`). Files with `Version ≠ 1` MUST be rejected unless the reader supports that specific format variant. For versioning within format variant 1, see the Metadata Format Version (§6).
+
+**Magic validation**: Readers MUST reject files where `Magic ≠ 0x5341454D`.
 
 ### §4a-flags. File Header Flags
 
@@ -101,7 +105,7 @@ An .meas file consists of a fixed-size header followed by a chain of segments:
 | 0   | ExtendedMetadata   | Metadata segment begins with a 2-byte version prefix (see §6).   |
 | 1–15| —                  | Reserved. Must be `0`.                                            |
 
-When bit 0 is **clear**, the metadata segment uses the legacy format (content starts directly with `groupCount`). When bit 0 is **set**, the metadata content starts with a 2-byte version prefix `[uint8: metaMajor][uint8: metaMinor]` followed by the versioned format. This allows existing files (≤ 0.3.x) to remain readable while enabling future metadata evolution.
+When bit 0 is **clear**, the metadata segment uses the legacy format (content starts directly with `groupCount`). When bit 0 is **set**, the metadata content starts with a 2-byte version prefix `[uint8: metaMajor][uint8: metaMinor]` followed by the versioned format.
 
 The metadata version follows the project's semver convention: pre-1.0 versions (0.x) may introduce changes with each minor bump.
 
@@ -681,7 +685,8 @@ A conforming writer SHOULD:
 ### Reader conformance
 
 A conforming reader MUST:
-- Validate the magic number and reject unknown versions
+- Validate the magic number (`Magic = 0x5341454D`)
+- Reject files with `Version ≠ 1` (exact-match validation; this is a format variant identifier, not a semantic version)
 - Handle multiple Data segments (chunks are additive)
 - Correctly decode both fixed-size and variable-length data
 
@@ -732,9 +737,31 @@ Offset  Hex                                              ASCII
 
 ## Appendix B: Version History
 
-| Version | Date       | Changes                         |
-|---------|------------|---------------------------------|
-| 1.0     | 2026-03    | Initial specification           |
+### Version Identifiers Summary
+
+MeasFlow uses three independent version identifiers for different purposes:
+
+| Identifier | Current Value | Purpose | Location | Validation |
+|------------|---------------|---------|----------|------------|
+| **Specification Document Version** | **0.4** | Tracks this specification document's evolution | Document header (line 3) | N/A (informational only) |
+| **File Format Version** | **1** | Format variant identifier | File header offset 4 (uint16) | Exact-match (`== 1`) |
+| **Metadata Format Version** | **0.1** | Semantic versioning for metadata | Metadata segment prefix (uint8.uint8) | Major match, minor ≤ |
+
+> **Important**: The Specification Document Version (0.4) and Metadata Format Version (0.1) are **completely independent**. The document version tracks changes to this specification text, while the metadata version tracks the binary wire format. They do not need to match.
+
+### Detailed Descriptions
+
+The .meas binary file format uses two distinct version identifiers embedded in the file:
+
+1. **File Format Version** (uint16 at offset 4 in file header): A format variant identifier (not a semantic version). Readers use exact-match validation. Currently **1**. This identifies the overall binary structure and determines which parser to use.
+
+2. **Metadata Format Version** ([uint8: metaMajor][uint8: metaMinor] prefix in metadata segment when ExtendedMetadata flag is set): Semantic versioning for metadata evolution within a format variant. Currently **0.1**. This enables fine-grained versioning and backward compatibility within format variant 1.
+
+### Metadata Format Version History
+
+| Version | Date    | Changes                                                           |
+|---------|---------|-------------------------------------------------------------------|
+| 0.1     | 2026-03 | Extended metadata format with file-level properties               |
 
 ---
 
