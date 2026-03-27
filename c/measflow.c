@@ -519,7 +519,7 @@ static int build_metadata(const MeasWriter *w, ByteBuf *b, int with_stats,
     if (with_extended) {
         /* Extended metadata version header */
         if (!bbuf_append_u8(b, 0)) return 0;  /* metaMajor */
-        if (!bbuf_append_u8(b, 1)) return 0;  /* metaMinor */
+        if (!bbuf_append_u8(b, 4)) return 0;  /* metaMinor */
         /* File properties: [int32: count][properties...] */
         if (!bbuf_append_le32(b, (uint32_t)file_prop_count)) return 0;
         for (int i = 0; i < file_prop_count; i++) {
@@ -2362,7 +2362,7 @@ static int decode_metadata_segment(MeasReader *r, const uint8_t *buf, size_t buf
         if (off + 2 > bufsz) return 0;
         uint8_t metaMajor = buf[off++];
         uint8_t metaMinor = buf[off++];
-        if (metaMajor != 0 || metaMinor > 1) return 0;
+        if (metaMajor != 0 || metaMinor > 4) return 0;
         /* Decode file-level properties */
         if (!decode_properties(buf, bufsz, &off, &r->file_props, &r->file_prop_count))
             return 0;

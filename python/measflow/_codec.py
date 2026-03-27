@@ -206,7 +206,7 @@ FLAG_EXTENDED_METADATA = 0x0001
 
 # Current metadata format version (§6)
 META_MAJOR = 0
-META_MINOR = 1
+META_MINOR = 4
 
 
 def encode_metadata(groups: list[GroupDef],
